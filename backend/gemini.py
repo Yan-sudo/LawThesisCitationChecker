@@ -76,6 +76,7 @@ Respond ONLY with a JSON object — no markdown, no explanation outside the JSON
     "verdict": "Accurate | Inaccurate | No pincite | Cannot verify",
     "explanation": "one or two sentences"
   }},
+  "relevant_quote": "The single most relevant verbatim passage from the source text that either supports or contradicts the proposition. Use null if source text was not provided.",
   "overall": "one sentence summary",
   "confidence": "High | Medium | Low"
 }}"""

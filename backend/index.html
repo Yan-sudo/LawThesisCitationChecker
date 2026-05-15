@@ -98,9 +98,15 @@ a.key-link{color:#0f4c81}
 
 /* Source */
 .source-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.source-row a{font-size:13px;color:#0f4c81}
+.source-link{display:inline-flex;align-items:center;gap:5px;background:#0f4c81;color:#fff;text-decoration:none;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500}
+.source-link:hover{background:#0a3660}
 .source-note{font-size:12px;color:#888;font-style:italic;margin-top:4px}
-.source-snippet{background:#fffbee;border-left:3px solid #fcd34d;padding:10px 12px;font-size:12px;line-height:1.7;font-style:italic;color:#334155;max-height:180px;overflow-y:auto;border-radius:0 5px 5px 0;margin-top:8px;white-space:pre-wrap}
+.source-snippet{background:#f8f9fa;border-left:3px solid #cbd5e1;padding:10px 12px;font-size:12px;line-height:1.7;color:#334155;max-height:180px;overflow-y:auto;border-radius:0 5px 5px 0;margin-top:8px;white-space:pre-wrap}
+
+/* Relevant quote */
+.quote-box{background:#fffbee;border:1px solid #fcd34d;border-radius:7px;padding:12px 15px;margin-top:8px}
+.quote-box blockquote{font-size:13px;line-height:1.8;color:#334155;font-style:italic;border-left:3px solid #f59e0b;padding-left:12px;margin:0}
+.quote-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#b45309;margin-bottom:7px}
 
 /* Overall */
 .overall-box{background:#f0f7ff;border-radius:6px;padding:10px 13px;font-size:13px;color:#1e3a5f;line-height:1.5}
@@ -296,7 +302,9 @@ function makeCard(r) {
   // Verdict pills for header
   const propPill  = verdictPill(propV, 'prop');
   const srcLabel  = sourceLabel(r.source_name);
-  const srcPill   = `<span class="vp ${r.source_url ? 'vp-source' : 'vp-no-source'}">${srcLabel}</span>`;
+  const srcPill   = r.source_url
+    ? `<a class="vp vp-source" href="${r.source_url}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">${srcLabel} ↗</a>`
+    : `<span class="vp vp-no-source">${srcLabel}</span>`;
 
   const div = document.createElement('div');
   div.className = `cit-card ${cls}`;
@@ -353,11 +361,22 @@ function makeCard(r) {
       <div>
         <div class="section-title">Source</div>
         <div class="source-row">
-          <strong style="font-size:13px">${esc(sourceLabel(r.source_name))}</strong>
-          ${r.source_url ? `<a href="${r.source_url}" target="_blank" rel="noreferrer">Open ↗</a>` : ''}
+          ${r.source_url
+            ? `<a class="source-link" href="${r.source_url}" target="_blank" rel="noreferrer">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                Open ${esc(sourceLabel(r.source_name))}
+               </a>`
+            : `<span style="font-size:13px;color:#888">${esc(sourceLabel(r.source_name))}</span>`
+          }
         </div>
         ${r.source_note ? `<div class="source-note">${esc(r.source_note)}</div>` : ''}
-        ${r.source_snippet ? `<div class="source-snippet">${esc(r.source_snippet)}</div>` : ''}
+
+        ${llm.relevant_quote ? `
+        <div class="quote-box">
+          <div class="quote-label">Relevant passage identified by Gemini</div>
+          <blockquote>${esc(llm.relevant_quote)}</blockquote>
+        </div>` : (r.source_snippet ? `
+        <div class="source-snippet">${esc(r.source_snippet)}</div>` : '')}
       </div>
 
     </div>`;
