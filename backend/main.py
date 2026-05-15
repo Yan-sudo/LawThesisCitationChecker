@@ -20,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
 import citation_parser as cp
+from authority_splitter import split_authorities
 from docx_parser import extract_all
 from fetchers import fetch_case, fetch_statute, fetch_article, fetch_book
 from gemini import check_citation
@@ -137,41 +138,59 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-# ── Per-citation processing ────────────────────────────────────────────────────
+# ── Per-footnote processing ───────────────────────────────────────────────────
 
 def _process_one(item: dict, api_key: str) -> dict:
+    """
+    Split footnote into individual authorities, check each in parallel,
+    return a tree-shaped result.
+    """
     footnote_text = item["footnote"]
     sentence      = item["sentence"]
     number        = item["number"]
 
-    # Fetch source
-    parsed      = cp.parse(footnote_text)
-    source_info = _fetch_source(parsed)
+    authority_texts = split_authorities(footnote_text)
 
-    source_text = source_info.get("snippet")
-    source_name = source_info.get("source")
-    source_url  = source_info.get("url")
-    source_note = source_info.get("note")
+    auth_results: list[dict | None] = [None] * len(authority_texts)
 
-    # Gemini accuracy check
-    llm = check_citation(
-        api_key      = api_key,
-        main_sentence= sentence,
-        footnote_text= footnote_text,
-        source_text  = source_text,
-        source_name  = source_name,
-    )
+    def check_authority(idx: int, auth_text: str):
+        parsed      = cp.parse(auth_text)
+        source_info = _fetch_source(parsed)
+        source_text = source_info.get("snippet")
+        source_name = source_info.get("source")
+
+        llm = check_citation(
+            api_key       = api_key,
+            main_sentence = sentence,
+            footnote_text = auth_text,
+            source_text   = source_text,
+            source_name   = source_name,
+        )
+
+        auth_results[idx] = {
+            "text":          auth_text,
+            "citation_type": parsed.citation_type,
+            "source_name":   source_name,
+            "source_url":    source_info.get("url"),
+            "source_note":   source_info.get("note"),
+            "source_snippet":source_text,
+            "llm":           llm,
+        }
+
+    threads = [
+        threading.Thread(target=check_authority, args=(i, t), daemon=True)
+        for i, t in enumerate(authority_texts)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
     return {
-        "number":        number,
-        "footnote":      footnote_text,
-        "sentence":      sentence,
-        "citation_type": parsed.citation_type,
-        "source_name":   source_name,
-        "source_url":    source_url,
-        "source_note":   source_note,
-        "source_snippet":source_text,
-        "llm":           llm,
+        "number":      number,
+        "footnote":    footnote_text,
+        "sentence":    sentence,
+        "authorities": auth_results,
     }
 
 

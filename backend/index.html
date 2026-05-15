@@ -114,6 +114,15 @@ a.key-link{color:#0f4c81}
 /* Confidence */
 .conf{font-size:11px;color:#94a3b8;margin-top:4px}
 
+/* Authority tree */
+.auth-tree{display:flex;flex-direction:column;gap:7px;margin-top:6px}
+.auth-card{border-radius:6px;background:#fafbfc;border:1px solid #eaecef;overflow:hidden}
+.auth-header{display:flex;align-items:flex-start;gap:9px;padding:10px 13px;cursor:pointer;user-select:none}
+.auth-header:hover{background:#f3f4f6}
+.auth-num{background:#64748b;color:#fff;border-radius:3px;padding:1px 7px;font-size:11px;font-weight:700;flex-shrink:0;margin-top:2px}
+.auth-text{flex:1;font-size:12px;color:#374151;line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.auth-body{padding:12px 14px;border-top:1px solid #f0f0f0;display:flex;flex-direction:column;gap:0}
+
 /* Chevron */
 .chev{flex-shrink:0;width:18px;height:18px;color:#bbb;transition:transform .2s;margin-top:2px}
 .cit-card.open .chev{transform:rotate(180deg)}
@@ -269,118 +278,165 @@ function renderResults(data) {
   document.getElementById('results-title').textContent =
     `${results.length} footnote${results.length !== 1 ? 's' : ''} checked — ${data.filename || ''}`;
 
-  // Summary stats
-  let supports = 0, issues = 0, unverified = 0;
+  // Count across all authorities
+  let supports = 0, issues = 0, unverified = 0, authTotal = 0;
   results.forEach(r => {
-    const v = r.llm?.proposition_support?.verdict || '';
-    if (v === 'Supports') supports++;
-    else if (v === 'Does not support') issues++;
-    else unverified++;
+    (r.authorities || []).forEach(a => {
+      authTotal++;
+      const v = a.llm?.proposition_support?.verdict || '';
+      if (v === 'Supports') supports++;
+      else if (v === 'Does not support') issues++;
+      else unverified++;
+    });
   });
+
   document.getElementById('summary').innerHTML = `
-    <div class="stat"><span class="num">${supports}</span><span class="lbl">Support confirmed</span></div>
+    <div class="stat"><span class="num">${results.length}</span><span class="lbl">Footnotes</span></div>
+    <div class="stat"><span class="num">${authTotal}</span><span class="lbl">Authorities</span></div>
+    <div class="stat"><span class="num" style="color:#16a34a">${supports}</span><span class="lbl">Support confirmed</span></div>
     <div class="stat"><span class="num" style="color:#dc2626">${issues}</span><span class="lbl">Potential problems</span></div>
     <div class="stat"><span class="num" style="color:#94a3b8">${unverified}</span><span class="lbl">Cannot verify</span></div>
   `;
 
   document.getElementById('cards').innerHTML = '';
-  results.forEach(r => document.getElementById('cards').appendChild(makeCard(r)));
+  results.forEach(r => document.getElementById('cards').appendChild(makeFootnoteCard(r)));
 }
 
-function makeCard(r) {
-  const llm  = r.llm || {};
-  const prop = llm.proposition_support || {};
-  const par  = llm.parenthetical_accuracy || {};
-  const pin  = llm.pincite_accuracy || {};
-  const propV = prop.verdict || 'Cannot verify';
+// ── Footnote card (tree root) ───────────────────────────────────────
+function makeFootnoteCard(r) {
+  const auths = r.authorities || [];
 
-  // Card colour class
-  let cls = 'unverified';
-  if (propV === 'Supports') cls = 'all-good';
-  else if (propV === 'Does not support') cls = 'has-issues';
+  // Overall status: worst verdict across all authorities
+  const worstCls = auths.reduce((cls, a) => {
+    const v = a.llm?.proposition_support?.verdict || '';
+    if (v === 'Does not support') return 'has-issues';
+    if (cls === 'has-issues') return 'has-issues';
+    if (v === 'Supports') return cls === 'unverified' ? 'all-good' : cls;
+    return cls;
+  }, auths.length ? 'all-good' : 'unverified');
 
-  // Verdict pills for header
-  const propPill  = verdictPill(propV, 'prop');
-  const srcLabel  = sourceLabel(r.source_name);
-  const srcPill   = r.source_url
-    ? `<a class="vp vp-source" href="${r.source_url}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">${srcLabel} ↗</a>`
-    : `<span class="vp vp-no-source">${srcLabel}</span>`;
+  // Header verdict pills: one per authority
+  const authPills = auths.map((a, i) => {
+    const v = a.llm?.proposition_support?.verdict || 'Cannot verify';
+    const cls = v === 'Supports' ? 'vp-supports' : v === 'Does not support' ? 'vp-not-support' : 'vp-cannot';
+    return `<span class="vp ${cls}" title="${esc(a.text)}">Auth ${i+1}</span>`;
+  }).join('');
 
-  const div = document.createElement('div');
-  div.className = `cit-card ${cls}`;
-  div.innerHTML = `
+  const wrap = document.createElement('div');
+  wrap.className = `cit-card ${worstCls}`;
+  wrap.innerHTML = `
     <div class="cit-header" onclick="toggleCard(this)">
       <span class="fn-badge">${r.number}</span>
       <div class="cit-preview">
         <div class="cit-fn-text">${esc(r.footnote)}</div>
         ${r.sentence ? `<div class="cit-sentence">"${esc(r.sentence)}"</div>` : ''}
       </div>
-      <div class="cit-verdicts">${propPill}${srcPill}</div>
+      <div class="cit-verdicts">${authPills}</div>
       <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
     </div>
     <div class="cit-body" style="display:none">
-
       ${r.sentence ? `
       <div>
         <div class="section-title">Proposition cited</div>
         <div class="prop-box">${esc(r.sentence)}</div>
       </div>` : ''}
-
       <div>
-        <div class="section-title">Accuracy checks</div>
-        <div class="check-row">
-          <span class="check-label">Supports proposition?</span>
-          <div class="check-content">
-            <span class="check-verdict">${verdictPill(propV, 'prop')}</span>
-            <div class="check-expl">${esc(prop.explanation || '')}</div>
-          </div>
+        <div class="section-title">${auths.length} Authorit${auths.length === 1 ? 'y' : 'ies'}</div>
+        <div class="auth-tree" id="tree-${r.number}"></div>
+      </div>
+    </div>`;
+
+  // Build authority sub-cards after inserting into DOM
+  const tree = wrap.querySelector('.auth-tree');
+  auths.forEach((a, i) => tree.appendChild(makeAuthCard(a, i + 1)));
+  return wrap;
+}
+
+// ── Authority sub-card (tree leaf) ─────────────────────────────────
+function makeAuthCard(a, idx) {
+  const llm  = a.llm || {};
+  const prop = llm.proposition_support || {};
+  const par  = llm.parenthetical_accuracy || {};
+  const pin  = llm.pincite_accuracy || {};
+  const propV = prop.verdict || 'Cannot verify';
+
+  const borderCol = propV === 'Supports' ? '#22c55e'
+                  : propV === 'Does not support' ? '#ef4444' : '#94a3b8';
+
+  const srcPill = a.source_url
+    ? `<a class="vp vp-source" href="${a.source_url}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">${esc(sourceLabel(a.source_name))} ↗</a>`
+    : `<span class="vp vp-no-source">${esc(sourceLabel(a.source_name))}</span>`;
+
+  const div = document.createElement('div');
+  div.className = 'auth-card';
+  div.style.cssText = `border-left:3px solid ${borderCol}`;
+  div.innerHTML = `
+    <div class="auth-header" onclick="toggleAuthCard(this)">
+      <span class="auth-num">${idx}</span>
+      <span class="auth-text">${esc(a.text)}</span>
+      <div class="cit-verdicts" style="gap:4px">
+        ${verdictPill(propV,'prop')}${srcPill}
+      </div>
+      <svg class="chev" style="width:16px;height:16px;flex-shrink:0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="auth-body" style="display:none">
+
+      <div class="check-row">
+        <span class="check-label">Supports proposition?</span>
+        <div class="check-content">
+          ${verdictPill(propV,'prop')}
+          <div class="check-expl">${esc(prop.explanation||'')}</div>
         </div>
-        <div class="check-row">
-          <span class="check-label">Parenthetical accurate?</span>
-          <div class="check-content">
-            <span class="check-verdict">${verdictPill(par.verdict, 'par')}</span>
-            <div class="check-expl">${esc(par.explanation || '')}</div>
-          </div>
+      </div>
+      <div class="check-row">
+        <span class="check-label">Parenthetical accurate?</span>
+        <div class="check-content">
+          ${verdictPill(par.verdict,'par')}
+          <div class="check-expl">${esc(par.explanation||'')}</div>
         </div>
-        <div class="check-row">
-          <span class="check-label">Pincite accurate?</span>
-          <div class="check-content">
-            <span class="check-verdict">${verdictPill(pin.verdict, 'pin')}</span>
-            <div class="check-expl">${esc(pin.explanation || '')}</div>
-          </div>
+      </div>
+      <div class="check-row">
+        <span class="check-label">Pincite accurate?</span>
+        <div class="check-content">
+          ${verdictPill(pin.verdict,'pin')}
+          <div class="check-expl">${esc(pin.explanation||'')}</div>
         </div>
       </div>
 
       ${llm.overall ? `
-      <div>
-        <div class="section-title">Overall assessment</div>
+      <div style="margin-top:10px">
         <div class="overall-box">${esc(llm.overall)}</div>
         ${llm.confidence ? `<div class="conf">Confidence: ${llm.confidence}</div>` : ''}
       </div>` : ''}
 
-      <div>
+      <div style="margin-top:12px">
         <div class="section-title">Source</div>
-        <div class="source-row">
-          ${r.source_url
-            ? `<a class="source-link" href="${r.source_url}" target="_blank" rel="noreferrer">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                Open ${esc(sourceLabel(r.source_name))}
-               </a>`
-            : `<span style="font-size:13px;color:#888">${esc(sourceLabel(r.source_name))}</span>`
-          }
-        </div>
-        ${r.source_note ? `<div class="source-note">${esc(r.source_note)}</div>` : ''}
-
-        ${llm.relevant_quote ? `
-        <div class="quote-box">
-          <div class="quote-label">Relevant passage identified by Gemini</div>
-          <blockquote>${esc(llm.relevant_quote)}</blockquote>
-        </div>` : (r.source_snippet ? `
-        <div class="source-snippet">${esc(r.source_snippet)}</div>` : '')}
+        ${a.source_url
+          ? `<a class="source-link" href="${a.source_url}" target="_blank" rel="noreferrer" style="margin-bottom:8px;display:inline-flex">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              Open ${esc(sourceLabel(a.source_name))}</a>`
+          : `<span class="source-note">${esc(sourceLabel(a.source_name))}</span>`}
+        ${a.source_note ? `<div class="source-note">${esc(a.source_note)}</div>` : ''}
+        ${llm.relevant_quote
+          ? `<div class="quote-box" style="margin-top:8px">
+               <div class="quote-label">Relevant passage</div>
+               <blockquote>${esc(llm.relevant_quote)}</blockquote>
+             </div>`
+          : (a.source_snippet
+              ? `<div class="source-snippet" style="margin-top:8px">${esc(a.source_snippet)}</div>`
+              : '')}
       </div>
 
     </div>`;
   return div;
+}
+
+function toggleAuthCard(header) {
+  const card = header.parentElement;
+  const body = card.querySelector('.auth-body');
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : '';
+  card.classList.toggle('open', !open);
 }
 
 function verdictPill(verdict, type) {
