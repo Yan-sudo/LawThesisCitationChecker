@@ -2,6 +2,7 @@
 <OfficeApp
   xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
   xsi:type="TaskPaneApp">
 
   <Id>a1b2c3d4-e5f6-7890-abcd-ef1234567890</Id>
@@ -10,15 +11,14 @@
   <DefaultLocale>en-US</DefaultLocale>
 
   <DisplayName DefaultValue="Citation Checker" />
-  <Description DefaultValue="Check and correct Bluebook citations in law review footnotes." />
+  <Description DefaultValue="Checks and corrects Bluebook citations in law review footnotes." />
 
-  <IconUrl DefaultValue="https://localhost:3000/assets/icon-80.png" />
+  <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png" />
   <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-80.png" />
-  <SupportUrl DefaultValue="https://localhost:3000/taskpane.html" />
+  <SupportUrl DefaultValue="https://github.com/yan-sudo/lawthesiscitationchecker" />
 
   <AppDomains>
     <AppDomain>https://localhost:3000</AppDomain>
-    <AppDomain>http://localhost:8000</AppDomain>
   </AppDomains>
 
   <Hosts>
@@ -30,4 +30,5 @@
   </DefaultSettings>
 
   <Permissions>ReadWriteDocument</Permissions>
+
 </OfficeApp>
