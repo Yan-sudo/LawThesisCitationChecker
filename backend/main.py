@@ -1,139 +1,186 @@
 """
-Standalone HTTP server for the Law Citation Checker.
-Uses Python's built-in http.server — no external web framework required.
+Law Citation Checker — local web server.
 
 Usage:
-    python main.py            # runs on http://localhost:8000
-    python main.py --port 9000
+    python3 main.py              # http://localhost:8000
+    python3 main.py --port 9000
+
+Open http://localhost:8000 in your browser, upload a .docx file,
+and review Bluebook citation results for every footnote.
 """
 
 from __future__ import annotations
 
+import cgi
 import json
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
 import citation_parser as cp
 import bluebook
+from docx_parser import extract_footnotes
 from fetchers import fetch_case, fetch_statute, fetch_article, fetch_book
 
-# ── Routing table ─────────────────────────────────────────────────────────────
+HERE = os.path.dirname(os.path.abspath(__file__))
 
-ROUTES: dict[tuple[str, str], Any] = {}
-
-
-def route(method: str, path: str):
-    def decorator(fn):
-        ROUTES[(method.upper(), path)] = fn
-        return fn
-    return decorator
-
-
-# ── Handler ───────────────────────────────────────────────────────────────────
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
-        # Keep output clean — only log errors
-        pass
+        pass  # suppress per-request noise; errors still print via log_error
 
-    def _cors_headers(self):
+    # ── CORS ──────────────────────────────────────────────────────────────────
+
+    def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
     def do_OPTIONS(self):
         self.send_response(204)
-        self._cors_headers()
+        self._cors()
         self.end_headers()
 
+    # ── GET ───────────────────────────────────────────────────────────────────
+
     def do_GET(self):
-        fn = ROUTES.get(("GET", self.path))
-        if fn is None:
-            self._send(404, {"error": "not found"})
-            return
-        result = fn()
-        self._send(200, result)
+        if self.path in ("/", "/index.html"):
+            self._serve_file(os.path.join(HERE, "index.html"), "text/html; charset=utf-8")
+        elif self.path == "/health":
+            self._json(200, {"status": "ok"})
+        else:
+            self._json(404, {"error": "not found"})
+
+    # ── POST ──────────────────────────────────────────────────────────────────
 
     def do_POST(self):
-        fn = ROUTES.get(("POST", self.path))
-        if fn is None:
-            self._send(404, {"error": "not found"})
+        if self.path == "/upload":
+            self._handle_upload()
+        elif self.path == "/check":
+            self._handle_check()
+        else:
+            self._json(404, {"error": "not found"})
+
+    # ── /upload — parse .docx and check all footnotes ─────────────────────────
+
+    def _handle_upload(self):
+        ctype = self.headers.get("Content-Type", "")
+        if "multipart/form-data" not in ctype:
+            self._json(400, {"error": "Expected multipart/form-data"})
             return
+
+        form = cgi.FieldStorage(
+            fp=self.rfile,
+            headers=self.headers,
+            environ={
+                "REQUEST_METHOD": "POST",
+                "CONTENT_TYPE": ctype,
+            },
+        )
+
+        file_item = form.get("file")
+        if file_item is None or not hasattr(file_item, "file"):
+            self._json(400, {"error": "No file field in upload"})
+            return
+
+        docx_bytes = file_item.file.read()
+        filename   = getattr(file_item, "filename", "upload.docx") or "upload.docx"
+
+        try:
+            footnotes = extract_footnotes(docx_bytes)
+        except ValueError as exc:
+            self._json(400, {"error": str(exc)})
+            return
+
+        if not footnotes:
+            self._json(200, {
+                "filename": filename,
+                "footnote_count": 0,
+                "results": [],
+                "message": "No footnotes found in this document.",
+            })
+            return
+
+        # Check all footnotes in parallel
+        results: list[dict | None] = [None] * len(footnotes)
+
+        def worker(idx: int, fn: dict):
+            results[idx] = _check_one(fn["text"], fn["number"])
+
+        threads = [
+            threading.Thread(target=worker, args=(i, fn), daemon=True)
+            for i, fn in enumerate(footnotes)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self._json(200, {
+            "filename": filename,
+            "footnote_count": len(footnotes),
+            "results": results,
+        })
+
+    # ── /check — single citation (kept for API use) ────────────────────────────
+
+    def _handle_check(self):
         length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length) if length else b"{}"
+        body   = self.rfile.read(length) if length else b"{}"
         try:
             payload = json.loads(body)
         except json.JSONDecodeError as exc:
-            self._send(400, {"error": f"bad JSON: {exc}"})
+            self._json(400, {"error": f"bad JSON: {exc}"})
             return
-        result = fn(payload)
-        self._send(200, result)
+        result = _check_one(payload.get("text", ""), payload.get("footnote_number"))
+        self._json(200, result)
 
-    def _send(self, status: int, data: Any):
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _serve_file(self, path: str, content_type: str):
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+        except FileNotFoundError:
+            self._json(404, {"error": f"file not found: {path}"})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self._cors()
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _json(self, status: int, data: Any):
         body = json.dumps(data, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self._cors_headers()
+        self._cors()
         self.end_headers()
         self.wfile.write(body)
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# ── Citation check logic ──────────────────────────────────────────────────────
 
-@route("GET", "/health")
-def health():
-    return {"status": "ok"}
-
-
-@route("POST", "/check")
-def check(payload: dict) -> dict:
-    text   = payload.get("text", "")
-    fn_num = payload.get("footnote_number")
-    return _check_one(text, fn_num)
-
-
-@route("POST", "/check-batch")
-def check_batch(payload: dict) -> list:
-    citations = payload.get("citations", [])
-    results = []
-    threads = []
-    bucket: list[dict | None] = [None] * len(citations)
-
-    def worker(idx: int, item: dict):
-        bucket[idx] = _check_one(item.get("text", ""), item.get("footnote_number"))
-
-    for i, item in enumerate(citations):
-        t = threading.Thread(target=worker, args=(i, item), daemon=True)
-        threads.append(t)
-        t.start()
-    for t in threads:
-        t.join()
-
-    return bucket  # type: ignore[return-value]
-
-
-# ── Core check logic ──────────────────────────────────────────────────────────
-
-def _check_one(text: str, footnote_number) -> dict:
+def _check_one(text: str, footnote_number: Any) -> dict:
     parsed      = cp.parse(text)
     bb          = bluebook.validate_and_format(parsed)
     source_info = _fetch_source(parsed)
 
     return {
         "footnote_number": footnote_number,
-        "raw": text,
-        "citation_type": parsed.citation_type,
-        "bluebook_valid": bb["is_valid"],
+        "raw":             text,
+        "citation_type":   parsed.citation_type,
+        "bluebook_valid":  bb["is_valid"],
         "bluebook_issues": bb["issues"],
         "bluebook_suggested": bb["suggested"],
-        "source_name": source_info.get("source"),
-        "source_url": source_info.get("url"),
-        "source_snippet": source_info.get("snippet"),
+        "source_name":     source_info.get("source"),
+        "source_url":      source_info.get("url"),
+        "source_snippet":  source_info.get("snippet"),
         "full_text_available": source_info.get("full_text_available", False),
-        "source_note": source_info.get("note"),
-        "parsed": _serialise(parsed),
+        "source_note":     source_info.get("note"),
     }
 
 
@@ -175,26 +222,15 @@ def _fetch_source(parsed: cp.ParsedCitation) -> dict:
             )
     except Exception as exc:
         return {
-            "source": "error",
-            "url": None,
-            "snippet": None,
+            "source": "error", "url": None, "snippet": None,
             "full_text_available": False,
             "note": f"Unexpected error fetching source: {exc}",
         }
 
     return {
-        "source": "unknown_type",
-        "url": None,
-        "snippet": None,
+        "source": "unknown_type", "url": None, "snippet": None,
         "full_text_available": False,
         "note": "Citation type could not be identified — Bluebook check only.",
-    }
-
-
-def _serialise(p: cp.ParsedCitation) -> dict:
-    return {
-        k: v for k, v in p.__dict__.items()
-        if v is not None and k not in ("raw", "errors")
     }
 
 
@@ -207,11 +243,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     server = HTTPServer(("0.0.0.0", args.port), Handler)
-    print(f"Citation Checker backend running on http://localhost:{args.port}")
-    print("  GET  /health")
-    print("  POST /check")
-    print("  POST /check-batch")
+    print(f"\n  Law Citation Checker")
+    print(f"  Open → http://localhost:{args.port}\n")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nShutting down.")
+        print("\nStopped.")

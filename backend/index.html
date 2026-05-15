@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Law Citation Checker</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  color: #1f1f1f;
+  background: #f5f5f5;
+  min-height: 100vh;
+}
+
+/* ── Header ──────────────────────────── */
+header {
+  background: #0f4c81;
+  color: white;
+  padding: 18px 32px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+header h1 { font-size: 20px; font-weight: 600; }
+header p  { font-size: 13px; opacity: .8; margin-top: 2px; }
+
+/* ── Upload zone ─────────────────────── */
+.upload-wrap {
+  max-width: 680px;
+  margin: 48px auto;
+  padding: 0 20px;
+}
+
+.drop-zone {
+  border: 2px dashed #b0c4de;
+  border-radius: 12px;
+  background: white;
+  padding: 56px 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+.drop-zone.over, .drop-zone:hover { border-color: #0f4c81; background: #f0f5fb; }
+.drop-zone svg { opacity: .4; margin-bottom: 14px; }
+.drop-zone h2 { font-size: 17px; color: #333; margin-bottom: 6px; }
+.drop-zone p  { font-size: 13px; color: #777; }
+
+#file-input { display: none; }
+
+.btn {
+  display: inline-block;
+  margin-top: 18px;
+  padding: 10px 28px;
+  background: #0f4c81;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.btn:hover { background: #0a3660; }
+
+/* ── Progress ────────────────────────── */
+.progress-wrap { text-align: center; padding: 48px 20px; }
+.spinner-big {
+  width: 48px; height: 48px;
+  border: 4px solid #d0dce8;
+  border-top-color: #0f4c81;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+  margin: 0 auto 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.progress-wrap p { color: #555; font-size: 14px; }
+
+/* ── Results ─────────────────────────── */
+.results-wrap {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+}
+.results-header {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.results-header h2 { font-size: 18px; color: #0f4c81; }
+.results-header .meta { font-size: 13px; color: #666; }
+
+/* ── Citation card ───────────────────── */
+.card {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  transition: box-shadow .15s;
+}
+.card:hover { box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+.card.open  { border-color: #0f4c81; }
+
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+}
+.card-header:hover { background: #fafafa; }
+
+.fn-num {
+  background: #0f4c81;
+  color: white;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.fn-text {
+  flex: 1;
+  font-size: 13px;
+  color: #444;
+  line-height: 1.5;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.card.open .fn-text { -webkit-line-clamp: unset; }
+
+.badges { display: flex; gap: 5px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.badge {
+  border-radius: 12px;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badge-type    { background: #ddeeff; color: #0066cc; }
+.badge-ok      { background: #dff6dd; color: #107c10; }
+.badge-warn    { background: #fff4ce; color: #7a5800; }
+.badge-error   { background: #fde7e9; color: #a4262c; }
+.badge-paywall { background: #f0e6ff; color: #5c00c1; }
+
+/* ── Card detail ─────────────────────── */
+.card-body {
+  border-top: 1px solid #eee;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: #888;
+  margin-bottom: 5px;
+}
+
+.issues { list-style: none; }
+.issues li {
+  font-size: 13px;
+  color: #a4262c;
+  padding-left: 14px;
+  position: relative;
+  line-height: 1.5;
+}
+.issues li::before { content: "•"; position: absolute; left: 4px; }
+
+.suggested {
+  background: #f4fbf4;
+  border: 1px solid #b7ddb7;
+  border-radius: 5px;
+  padding: 10px 12px;
+  font-family: "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #1a5c1a;
+  margin-top: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.source-box {
+  background: #f8f8f8;
+  border-radius: 5px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.source-box a { color: #0066cc; word-break: break-all; }
+.source-box a:hover { text-decoration: underline; }
+
+.snippet {
+  background: #fffbee;
+  border-left: 3px solid #f0c040;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  font-style: italic;
+  color: #333;
+  white-space: pre-wrap;
+  max-height: 220px;
+  overflow-y: auto;
+  border-radius: 0 5px 5px 0;
+}
+
+.note { font-size: 13px; color: #666; font-style: italic; }
+.ok-msg { font-size: 13px; color: #107c10; }
+
+.chevron {
+  flex-shrink: 0;
+  width: 18px; height: 18px;
+  color: #aaa;
+  transition: transform .2s;
+}
+.card.open .chevron { transform: rotate(180deg); }
+
+/* ── Error state ─────────────────────── */
+.error-box {
+  background: #fde7e9;
+  border: 1px solid #f1a7ab;
+  border-radius: 8px;
+  padding: 20px 24px;
+  color: #a4262c;
+  max-width: 680px;
+  margin: 32px auto;
+  font-size: 14px;
+}
+
+/* ── Summary bar ─────────────────────── */
+.summary {
+  display: flex;
+  gap: 20px;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 14px 20px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.summary-item { font-size: 13px; color: #555; }
+.summary-item span { font-weight: 700; color: #0f4c81; }
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+    <rect width="28" height="28" rx="5" fill="rgba(255,255,255,0.2)"/>
+    <path d="M6 7h16M6 11h16M6 15h10M6 19h8" stroke="white" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+  <div>
+    <h1>Law Citation Checker</h1>
+    <p>Bluebook validation &amp; source lookup for law review footnotes</p>
+  </div>
+</header>
+
+<div id="app">
+  <!-- Upload screen -->
+  <div id="screen-upload" class="upload-wrap">
+    <div class="drop-zone" id="drop-zone">
+      <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+        <path d="M28 36V20M28 20l-8 8M28 20l8 8" stroke="#0f4c81" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M10 38v4a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4v-4" stroke="#0f4c81" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <h2>Drop your .docx file here</h2>
+      <p>or click to browse</p>
+      <button class="btn" onclick="document.getElementById('file-input').click()">Choose file</button>
+      <input type="file" id="file-input" accept=".docx" />
+    </div>
+    <p style="text-align:center;font-size:12px;color:#999;margin-top:14px;">
+      Your document is processed locally — nothing is sent to external servers except citation lookups (CourtListener, CrossRef, etc.).
+    </p>
+  </div>
+
+  <!-- Progress screen -->
+  <div id="screen-progress" style="display:none" class="progress-wrap">
+    <div class="spinner-big"></div>
+    <p id="progress-msg">Uploading and extracting footnotes…</p>
+  </div>
+
+  <!-- Error screen -->
+  <div id="screen-error" style="display:none" class="error-box">
+    <strong>Error</strong><br/><span id="error-msg"></span>
+    <br/><br/><a href="/" style="color:#a4262c">← Try again</a>
+  </div>
+
+  <!-- Results screen -->
+  <div id="screen-results" style="display:none" class="results-wrap">
+    <div class="results-header">
+      <h2>Results</h2>
+      <span class="meta" id="results-meta"></span>
+      <a href="/" style="margin-left:auto;font-size:13px;color:#0066cc">← Check another document</a>
+    </div>
+    <div class="summary" id="summary"></div>
+    <div id="cards"></div>
+  </div>
+</div>
+
+<script>
+const SOURCE_LABELS = {
+  courtlistener: "CourtListener",
+  uscode_house:  "U.S. House USCODE",
+  ecfr:          "eCFR",
+  crossref:      "CrossRef",
+  openalex:      "OpenAlex",
+  google_books:  "Google Books",
+  not_found:     "Not found",
+  paywalled:     "Paywalled source",
+  error:         "Lookup error",
+  unknown_type:  "Type unknown",
+};
+
+const TYPE_RULE = { case:"10", statute:"12", book:"15", article:"16" };
+
+function show(id) {
+  ["screen-upload","screen-progress","screen-error","screen-results"]
+    .forEach(s => document.getElementById(s).style.display = s === id ? "" : "none");
+}
+
+async function processFile(file) {
+  if (!file.name.endsWith(".docx")) {
+    showError("Please upload a .docx file.");
+    return;
+  }
+  show("screen-progress");
+  document.getElementById("progress-msg").textContent = "Uploading and extracting footnotes…";
+
+  const form = new FormData();
+  form.append("file", file);
+
+  let data;
+  try {
+    const resp = await fetch("/upload", { method: "POST", body: form });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: resp.statusText }));
+      throw new Error(err.error || resp.statusText);
+    }
+    data = await resp.json();
+  } catch (e) {
+    showError(e.message);
+    return;
+  }
+
+  renderResults(data);
+}
+
+function showError(msg) {
+  document.getElementById("error-msg").textContent = msg;
+  show("screen-error");
+}
+
+function renderResults(data) {
+  show("screen-results");
+  const results = data.results || [];
+  const total   = results.length;
+  const warns   = results.filter(r =>
+    !r.bluebook_valid ||
+    r.source_name === "not_found" ||
+    r.source_name === "paywalled"
+  ).length;
+  const found   = results.filter(r =>
+    r.source_name && !["not_found","paywalled","error","unknown_type"].includes(r.source_name)
+  ).length;
+
+  document.getElementById("results-meta").textContent =
+    `${total} footnote${total !== 1 ? "s" : ""} checked`;
+
+  document.getElementById("summary").innerHTML = `
+    <div class="summary-item">Footnotes: <span>${total}</span></div>
+    <div class="summary-item">Sources found: <span>${found}</span></div>
+    <div class="summary-item">Need attention: <span>${warns}</span></div>
+  `;
+
+  const cards = document.getElementById("cards");
+  cards.innerHTML = "";
+  results.forEach(r => cards.appendChild(makeCard(r)));
+}
+
+function makeCard(r) {
+  const card = document.createElement("div");
+  card.className = "card";
+
+  // Badges
+  const typeLabel = { case:"Case", statute:"Statute", article:"Article", book:"Book" }[r.citation_type];
+  const srcStatus = (() => {
+    if (!r.source_name) return null;
+    if (r.source_name === "paywalled") return "paywall";
+    if (["not_found","error"].includes(r.source_name)) return "warn";
+    return r.full_text_available ? "ok" : "warn";
+  })();
+
+  let badges = "";
+  if (typeLabel) badges += `<span class="badge badge-type">${typeLabel}</span>`;
+  if (!r.bluebook_valid) badges += `<span class="badge badge-warn">Style</span>`;
+  if (srcStatus === "paywall") badges += `<span class="badge badge-paywall">Paywall</span>`;
+  else if (srcStatus === "warn") badges += `<span class="badge badge-error">Not found</span>`;
+  else if (srcStatus === "ok")   badges += `<span class="badge badge-ok">✓ Found</span>`;
+
+  // Bluebook section
+  let bbSection = "";
+  if (r.bluebook_valid) {
+    bbSection = `<div class="ok-msg">✓ Citation style looks correct.</div>`;
+  } else {
+    const issues = (r.bluebook_issues || []).map(i => `<li>${i}</li>`).join("");
+    bbSection = `
+      <ul class="issues">${issues}</ul>
+      <div class="suggested">${esc(r.bluebook_suggested)}</div>`;
+  }
+
+  // Source section
+  let srcSection = "";
+  if (!r.source_name || r.source_name === "unknown_type" || r.citation_type === "unknown") {
+    srcSection = `<div class="note">Citation type not recognised — source lookup skipped.</div>`;
+  } else {
+    const label = SOURCE_LABELS[r.source_name] || r.source_name;
+    const link  = r.source_url
+      ? `<a href="${r.source_url}" target="_blank" rel="noreferrer">Open source ↗</a>`
+      : "";
+    srcSection = `<div class="source-box"><strong>${label}</strong> ${link}</div>`;
+    if (r.source_note) srcSection += `<div class="note" style="margin-top:6px">${esc(r.source_note)}</div>`;
+    if (r.source_snippet) srcSection += `<div class="snippet" style="margin-top:8px">${esc(r.source_snippet)}</div>`;
+  }
+
+  const rule = TYPE_RULE[r.citation_type] || "—";
+
+  card.innerHTML = `
+    <div class="card-header" onclick="toggleCard(this)">
+      <span class="fn-num">${r.footnote_number}</span>
+      <span class="fn-text">${esc(r.raw || "(empty)")}</span>
+      <span class="badges">${badges}</span>
+      <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </div>
+    <div class="card-body" style="display:none">
+      <div>
+        <div class="section-label">Bluebook${rule !== "—" ? ` (Rule ${rule})` : ""}</div>
+        ${bbSection}
+      </div>
+      <div>
+        <div class="section-label">Source</div>
+        ${srcSection}
+      </div>
+    </div>`;
+
+  return card;
+}
+
+function toggleCard(header) {
+  const card = header.parentElement;
+  const body = card.querySelector(".card-body");
+  const open = body.style.display !== "none";
+  body.style.display = open ? "none" : "";
+  card.classList.toggle("open", !open);
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// ── Drag & drop ──────────────────────────────────────────
+const dz = document.getElementById("drop-zone");
+dz.addEventListener("dragover",  e => { e.preventDefault(); dz.classList.add("over"); });
+dz.addEventListener("dragleave", () => dz.classList.remove("over"));
+dz.addEventListener("drop", e => {
+  e.preventDefault();
+  dz.classList.remove("over");
+  const f = e.dataTransfer.files[0];
+  if (f) processFile(f);
+});
+document.getElementById("file-input").addEventListener("change", e => {
+  if (e.target.files[0]) processFile(e.target.files[0]);
+});
+</script>
+</body>
+</html>
