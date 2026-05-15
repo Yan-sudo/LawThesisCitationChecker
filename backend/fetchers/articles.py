@@ -67,7 +67,7 @@ def _try_crossref(query: str, title: str) -> dict:
 
     doi      = best.get("DOI", "")
     doi_url  = f"https://doi.org/{doi}" if doi else best.get("URL", "")
-    abstract = re.sub(r"<[^>]+>", "", best.get("abstract", "") or "").strip()
+    abstract = re.sub(r"<[^>]+>", "", best.get("abstract") or "").strip()
 
     return {
         "source": "crossref",

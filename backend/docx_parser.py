@@ -153,26 +153,13 @@ def _walk_runs(para: ET.Element):
 
 
 def _sentence_at(text: str, pos: int) -> str:
-    """Return the sentence in `text` that contains character position `pos`."""
-    # Sentence-ending: period/!/? not inside an abbreviation
-    # Simple heuristic: look for '. ' or end-of-string
+    """Return the complete sentence in `text` that contains character position `pos`."""
     sentence_end = re.compile(r'(?<=[.!?])\s')
-
-    # Find all sentence boundaries
     boundaries = [0] + [m.end() for m in sentence_end.finditer(text)] + [len(text)]
 
-    sentence = text.strip()
     for i in range(len(boundaries) - 1):
         start, end = boundaries[i], boundaries[i + 1]
         if start <= pos <= end:
-            sentence = text[start:end].strip()
-            break
+            return text[start:end].strip()
 
-    # Trim to reasonable length (avoid sending huge paragraphs)
-    if len(sentence) > 600:
-        # Keep the portion around the marker
-        lo  = max(0, pos - 300)
-        hi  = min(len(text), pos + 300)
-        sentence = ("…" if lo > 0 else "") + text[lo:hi].strip() + ("…" if hi < len(text) else "")
-
-    return sentence
+    return text.strip()

@@ -48,7 +48,7 @@ def fetch_book(authors: str, title: str, page: str = None,
     preview     = info.get("previewLink")
     viewability = access.get("viewability", "NO_PAGES")
     has_preview = viewability in ("ALL_PAGES", "PARTIAL")
-    description = (info.get("description") or "")[:400] or None
+    description = info.get("description") or None
 
     return {
         "source": "google_books",

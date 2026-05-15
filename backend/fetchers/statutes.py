@@ -78,8 +78,12 @@ def _fetch_ecfr(title: str, section: str) -> dict:
 def _extract_snippet(html: str, section: str) -> str:
     text = re.sub(r"<[^>]+>", " ", html)
     text = re.sub(r"\s{2,}", " ", text)
-    m = re.search(rf"§\s*{re.escape(section)}\b(.{{0,800}})", text, re.DOTALL)
-    return m.group(0)[:700].strip() if m else ""
+    # Capture from the section marker to the next section marker or end
+    m = re.search(
+        rf"§\s*{re.escape(section)}\b(.*?)(?=§\s*\d|\Z)",
+        text, re.DOTALL
+    )
+    return m.group(0).strip() if m else ""
 
 
 def _error(msg: str, source: str) -> dict:

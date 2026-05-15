@@ -80,11 +80,12 @@ def _get_snippet(opinion_id: int, pincite: Optional[str]) -> Optional[str]:
     if pincite:
         m = re.search(rf"\*+\s*{re.escape(pincite)}\b", text)
         if m:
-            start = max(0, m.start() - 200)
-            end   = min(len(text), m.end() + 400)
+            # Return from start of that page to end of next page marker (or 2000 chars)
+            start = max(0, m.start() - 100)
+            end   = min(len(text), m.end() + 2000)
             return text[start:end].strip()
 
-    return text[:500].strip()
+    return text[:3000].strip()
 
 
 def _strip_html(html: str) -> str:
