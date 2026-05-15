@@ -283,10 +283,11 @@ async function runCheck() {
   document.getElementById('prog-label').textContent =
     `Checking ${allAuthorities.length} authorit${allAuthorities.length === 1 ? 'y' : 'ies'} with Gemini…`;
 
-  await Promise.all(allAuthorities.map(async ({ r, a, ri, ai }) => {
+  await limitedMap(allAuthorities, 3, async ({ r, a, ri, ai }) => {
     try {
-      const llm = await callGemini(key, r.sentence, a.text, a.source_snippet, a.source_name);
-      a.llm = llm;
+      a.llm = await withRetry(() =>
+        callGemini(key, r.sentence, a.text, a.source_snippet, a.source_name)
+      );
     } catch (e) {
       a.llm = {
         proposition_support:    { verdict: 'Cannot verify', explanation: e.message },
@@ -300,10 +301,41 @@ async function runCheck() {
     }
     updateAuthCard(ri, ai, a);
     updateFootnoteHeader(ri, data.results[ri]);
-  }));
+  });
 
   document.getElementById('prog-label').textContent = '';
   updateSummary(data.results);
+}
+
+// ── Concurrency limiter — run at most `n` tasks simultaneously ──────
+async function limitedMap(items, n, fn) {
+  const results = new Array(items.length);
+  let idx = 0;
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+  return results;
+}
+
+// ── Retry with exponential backoff on 429 ──────────────────────────
+async function withRetry(fn, maxAttempts = 5) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const is429 = e.message.includes('429') || e.message.toLowerCase().includes('resource exhausted');
+      if (is429 && attempt < maxAttempts - 1) {
+        const wait = (2 ** attempt) * 3000 + Math.random() * 1000; // 3s, 6s, 12s, 24s + jitter
+        await new Promise(r => setTimeout(r, wait));
+      } else {
+        throw e;
+      }
+    }
+  }
 }
 
 // ── Gemini call (browser → Google directly) ────────────────────────
