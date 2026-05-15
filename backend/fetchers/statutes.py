@@ -1,17 +1,25 @@
 """
 Fetches statute text from the U.S. House USCODE website (free, no auth).
 For C.F.R. citations, uses eCFR.gov.
+Uses only Python's built-in urllib — no third-party packages required.
 """
 
 import re
-import datetime
-import requests
+import json
+import urllib.request
+import urllib.parse
 
 USCODE_VIEW = "https://uscode.house.gov/view.xhtml"
 ECFR_VIEW   = "https://www.ecfr.gov/current/title-{title}/section-{section}"
 
 HEADERS = {"User-Agent": "LawCitationChecker/1.0 (academic research)"}
 TIMEOUT = 15
+
+
+def _get_html(url: str) -> str:
+    req = urllib.request.Request(url, headers=HEADERS)
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        return resp.read().decode(errors="replace")
 
 
 def fetch_statute(title: str, code: str, section: str, year: str = None) -> dict:
@@ -23,12 +31,9 @@ def fetch_statute(title: str, code: str, section: str, year: str = None) -> dict
 
 def _fetch_usc(title: str, section: str) -> dict:
     sec = section.lstrip("§").strip()
-    view_url = f"{USCODE_VIEW}?req={title}+usc+{sec}"
+    view_url = f"{USCODE_VIEW}?{urllib.parse.urlencode({'req': f'{title} usc {sec}'})}"
     try:
-        resp = requests.get(view_url, headers=HEADERS, timeout=TIMEOUT,
-                            allow_redirects=True)
-        resp.raise_for_status()
-        html = resp.text
+        html = _get_html(view_url)
     except Exception as exc:
         return _error(str(exc), "U.S. House USCODE")
 
@@ -56,10 +61,7 @@ def _fetch_usc(title: str, section: str) -> dict:
 def _fetch_ecfr(title: str, section: str) -> dict:
     url = ECFR_VIEW.format(title=title, section=section)
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=TIMEOUT,
-                            allow_redirects=True)
-        resp.raise_for_status()
-        html = resp.text
+        html = _get_html(url)
     except Exception as exc:
         return _error(str(exc), "eCFR")
 
@@ -76,8 +78,7 @@ def _fetch_ecfr(title: str, section: str) -> dict:
 def _extract_snippet(html: str, section: str) -> str:
     text = re.sub(r"<[^>]+>", " ", html)
     text = re.sub(r"\s{2,}", " ", text)
-    pat = re.compile(rf"§\s*{re.escape(section)}\b(.{{0,800}})", re.DOTALL)
-    m = pat.search(text)
+    m = re.search(rf"§\s*{re.escape(section)}\b(.{{0,800}})", text, re.DOTALL)
     return m.group(0)[:700].strip() if m else ""
 
 

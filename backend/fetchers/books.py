@@ -1,26 +1,32 @@
 """
 Fetches book metadata from Google Books API (free, no auth required for searches).
-Page-level snippets depend on Google's preview availability.
+Uses only Python's built-in urllib — no third-party packages required.
 """
 
 import re
-import requests
+import json
+import urllib.request
+import urllib.parse
 
 GOOGLE_BOOKS = "https://www.googleapis.com/books/v1/volumes"
 HEADERS = {"User-Agent": "LawCitationChecker/1.0 (academic research)"}
 TIMEOUT = 15
 
 
+def _get_json(url: str, params: dict = None) -> dict:
+    if params:
+        url = url + "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers=HEADERS)
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        return json.loads(resp.read().decode())
+
+
 def fetch_book(authors: str, title: str, page: str = None,
                year: str = None, edition: str = None) -> dict:
-    last = _last_name(authors)
+    last  = _last_name(authors)
     query = f'intitle:"{title}" inauthor:"{last}"'
-    params = {"q": query, "maxResults": 5, "printType": "books"}
-
     try:
-        resp = requests.get(GOOGLE_BOOKS, params=params, headers=HEADERS, timeout=TIMEOUT)
-        resp.raise_for_status()
-        items = resp.json().get("items", [])
+        items = _get_json(GOOGLE_BOOKS, {"q": query, "maxResults": 5, "printType": "books"}).get("items", [])
     except Exception as exc:
         return _error(str(exc))
 
@@ -37,17 +43,16 @@ def fetch_book(authors: str, title: str, page: str = None,
             ),
         }
 
-    info   = best.get("volumeInfo", {})
-    access = best.get("accessInfo", {})
-
-    preview_link  = info.get("previewLink")
-    viewability   = access.get("viewability", "NO_PAGES")
-    has_preview   = viewability in ("ALL_PAGES", "PARTIAL")
-    description   = (info.get("description") or "")[:400] or None
+    info        = best.get("volumeInfo", {})
+    access      = best.get("accessInfo", {})
+    preview     = info.get("previewLink")
+    viewability = access.get("viewability", "NO_PAGES")
+    has_preview = viewability in ("ALL_PAGES", "PARTIAL")
+    description = (info.get("description") or "")[:400] or None
 
     return {
         "source": "google_books",
-        "url": preview_link,
+        "url": preview,
         "title_found": info.get("title", ""),
         "authors_found": ", ".join(info.get("authors") or []),
         "published_year": (info.get("publishedDate") or "")[:4] or None,

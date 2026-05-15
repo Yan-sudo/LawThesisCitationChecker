@@ -1,34 +1,40 @@
 """
 Fetches case text from CourtListener (free, no auth required).
 API docs: https://www.courtlistener.com/api/rest/v4/
+Uses only Python's built-in urllib — no third-party packages required.
 """
 
 import re
-import requests
+import json
+import urllib.request
+import urllib.parse
+from typing import Optional
 
 COURTLISTENER_SEARCH  = "https://www.courtlistener.com/api/rest/v4/search/"
-COURTLISTENER_OPINION = "https://www.courtlistener.com/api/rest/v4/opinions/{id}/"
+COURTLISTENER_OPINION = "https://www.courtlistener.com/api/rest/v4/opinions/{}/"
 
 HEADERS = {"User-Agent": "LawCitationChecker/1.0 (academic research)"}
 TIMEOUT = 15
 
 
-def fetch_case(parties: str, volume: str, reporter: str, page: str,
-               year: str = None, pincite: str = None) -> dict:
-    """Returns source info dict for the given case citation."""
-    query = f"{parties} {volume} {reporter} {page}"
-    params = {
-        "q": query,
-        "type": "o",
-        "order_by": "score desc",
-        "stat_Precedential": "on",
-    }
+def _get(url: str, params: dict = None) -> dict:
+    if params:
+        url = url + "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers=HEADERS)
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        return json.loads(resp.read().decode())
 
+
+def fetch_case(parties: str, volume: str, reporter: str, page: str,
+               year: Optional[str] = None, pincite: Optional[str] = None) -> dict:
+    query = f"{parties} {volume} {reporter} {page}"
     try:
-        resp = requests.get(COURTLISTENER_SEARCH, params=params,
-                            headers=HEADERS, timeout=TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
+        data = _get(COURTLISTENER_SEARCH, {
+            "q": query,
+            "type": "o",
+            "order_by": "score desc",
+            "stat_Precedential": "on",
+        })
     except Exception as exc:
         return _error(str(exc))
 
@@ -45,12 +51,11 @@ def fetch_case(parties: str, volume: str, reporter: str, page: str,
             ),
         }
 
-    hit = results[0]
+    hit        = results[0]
     opinion_id = hit.get("id")
     case_name  = hit.get("caseName", parties)
     cl_url     = f"https://www.courtlistener.com{hit.get('absolute_url', '')}"
-
-    snippet = _get_snippet(opinion_id, pincite) if opinion_id else None
+    snippet    = _get_snippet(opinion_id, pincite) if opinion_id else None
 
     return {
         "source": "courtlistener",
@@ -62,14 +67,9 @@ def fetch_case(parties: str, volume: str, reporter: str, page: str,
     }
 
 
-def _get_snippet(opinion_id: int, pincite: str = None) -> str | None:
+def _get_snippet(opinion_id: int, pincite: Optional[str]) -> Optional[str]:
     try:
-        resp = requests.get(
-            COURTLISTENER_OPINION.format(id=opinion_id),
-            headers=HEADERS, timeout=TIMEOUT,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        data = _get(COURTLISTENER_OPINION.format(opinion_id))
     except Exception:
         return None
 

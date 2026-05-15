@@ -1,10 +1,12 @@
 """
 Fetches law review article metadata from CrossRef then OpenAlex (both free).
-Full text is rarely available openly for law reviews — we flag paywalled sources.
+Uses only Python's built-in urllib — no third-party packages required.
 """
 
 import re
-import requests
+import json
+import urllib.request
+import urllib.parse
 
 CROSSREF = "https://api.crossref.org/works"
 OPENALEX = "https://api.openalex.org/works"
@@ -13,6 +15,14 @@ HEADERS = {
     "User-Agent": "LawCitationChecker/1.0 (mailto:citation-checker@example.com)",
 }
 TIMEOUT = 15
+
+
+def _get_json(url: str, params: dict = None) -> dict:
+    if params:
+        url = url + "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers=HEADERS)
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        return json.loads(resp.read().decode())
 
 
 def fetch_article(authors: str, title: str, volume: str, journal: str,
@@ -41,15 +51,13 @@ def fetch_article(authors: str, title: str, volume: str, journal: str,
 
 
 def _try_crossref(query: str, title: str) -> dict:
-    params = {
-        "query.bibliographic": query,
-        "rows": 5,
-        "select": "DOI,title,author,container-title,volume,page,published,URL,abstract",
-    }
     try:
-        resp = requests.get(CROSSREF, params=params, headers=HEADERS, timeout=TIMEOUT)
-        resp.raise_for_status()
-        items = resp.json().get("message", {}).get("items", [])
+        data  = _get_json(CROSSREF, {
+            "query.bibliographic": query,
+            "rows": 5,
+            "select": "DOI,title,author,container-title,volume,page,published,URL,abstract",
+        })
+        items = data.get("message", {}).get("items", [])
     except Exception:
         return {"source": "not_found"}
 
@@ -57,8 +65,8 @@ def _try_crossref(query: str, title: str) -> dict:
     if not best:
         return {"source": "not_found"}
 
-    doi = best.get("DOI", "")
-    doi_url = f"https://doi.org/{doi}" if doi else best.get("URL", "")
+    doi      = best.get("DOI", "")
+    doi_url  = f"https://doi.org/{doi}" if doi else best.get("URL", "")
     abstract = re.sub(r"<[^>]+>", "", best.get("abstract", "") or "").strip()
 
     return {
@@ -77,15 +85,13 @@ def _try_crossref(query: str, title: str) -> dict:
 
 
 def _try_openalex(query: str, title: str) -> dict:
-    params = {
-        "search": query,
-        "per-page": 5,
-        "select": "id,title,doi,open_access,publication_year",
-    }
     try:
-        resp = requests.get(OPENALEX, params=params, headers=HEADERS, timeout=TIMEOUT)
-        resp.raise_for_status()
-        results = resp.json().get("results", [])
+        data    = _get_json(OPENALEX, {
+            "search": query,
+            "per-page": 5,
+            "select": "id,title,doi,open_access,publication_year",
+        })
+        results = data.get("results", [])
     except Exception:
         return {"source": "not_found"}
 
@@ -93,9 +99,9 @@ def _try_openalex(query: str, title: str) -> dict:
     if not best:
         return {"source": "not_found"}
 
-    oa = best.get("open_access", {})
-    oa_url = oa.get("oa_url")
-    doi = best.get("doi") or ""
+    oa      = best.get("open_access", {})
+    oa_url  = oa.get("oa_url")
+    doi     = best.get("doi") or ""
     doi_url = doi if doi.startswith("http") else (f"https://doi.org/{doi}" if doi else None)
 
     return {
@@ -115,7 +121,7 @@ def _try_openalex(query: str, title: str) -> dict:
 def _best_by_title(items: list, target: str, key) -> dict | None:
     if not items:
         return None
-    t = target.lower()
+    t      = target.lower()
     scored = [(item, _word_overlap(t, key(item).lower())) for item in items]
     scored.sort(key=lambda x: x[1], reverse=True)
     best_item, best_score = scored[0]
