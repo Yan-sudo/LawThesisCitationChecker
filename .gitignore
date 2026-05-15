@@ -1,0 +1,8 @@
+backend/.venv/
+backend/__pycache__/
+backend/fetchers/__pycache__/
+taskpane/node_modules/
+taskpane/dist/
+*.pyc
+*.pyo
+.DS_Store

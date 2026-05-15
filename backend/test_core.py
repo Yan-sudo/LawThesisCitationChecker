@@ -1,0 +1,90 @@
+"""
+Quick smoke tests for citation_parser and bluebook — no network calls needed.
+Run with: python test_core.py
+"""
+
+import sys
+import citation_parser as cp
+import bluebook
+
+
+def check(condition: bool, msg: str):
+    if condition:
+        print(f"  PASS  {msg}")
+    else:
+        print(f"  FAIL  {msg}")
+        sys.exit(1)
+
+
+# ── Parser tests ──────────────────────────────────────────────────────────────
+
+print("\n── Citation Parser ──────────────────────────────")
+
+r = cp.parse("Miranda v. Arizona, 384 U.S. 436 (1966)")
+check(r.citation_type == cp.CitationType.CASE, "CASE: Miranda v. Arizona detected")
+check(r.parties == "Miranda v. Arizona", f"CASE: parties='{r.parties}'")
+check(r.volume == "384", f"CASE: volume='{r.volume}'")
+check(r.reporter == "U.S.", f"CASE: reporter='{r.reporter}'")
+check(r.page == "436", f"CASE: page='{r.page}'")
+check(r.year == "1966", f"CASE: year='{r.year}'")
+
+r2 = cp.parse("Brown v. Bd. of Educ., 347 U.S. 483, 495 (1954)")
+check(r2.citation_type == cp.CitationType.CASE, "CASE: Brown v. Board detected")
+check(r2.pincite == "495", f"CASE: pincite='{r2.pincite}'")
+
+r3 = cp.parse("42 U.S.C. § 1983 (2018)")
+check(r3.citation_type == cp.CitationType.STATUTE, "STATUTE: 42 U.S.C. § 1983 detected")
+check(r3.title == "42", f"STATUTE: title='{r3.title}'")
+check(r3.section == "1983", f"STATUTE: section='{r3.section}'")
+check(r3.year == "2018", f"STATUTE: year='{r3.year}'")
+
+r4 = cp.parse(
+    "Katharine T. Bartlett, Feminist Legal Methods, "
+    "103 Harv. L. Rev. 829 (1990)"
+)
+check(r4.citation_type == cp.CitationType.ARTICLE, "ARTICLE: Bartlett detected")
+check("Bartlett" in (r4.authors or ""), f"ARTICLE: authors='{r4.authors}'")
+check(r4.volume == "103", f"ARTICLE: volume='{r4.volume}'")
+check(r4.page == "829", f"ARTICLE: page='{r4.page}'")
+
+r5 = cp.parse("William L. Prosser, Handbook of the Law of Torts 23 (4th ed. 1971)")
+check(r5.citation_type == cp.CitationType.BOOK, "BOOK: Prosser detected")
+check("Prosser" in (r5.authors or ""), f"BOOK: authors='{r5.authors}'")
+check(r5.year == "1971", f"BOOK: year='{r5.year}'")
+
+r6 = cp.parse("not a citation at all")
+check(r6.citation_type == cp.CitationType.UNKNOWN, "UNKNOWN: unrecognised text")
+
+# ── Bluebook tests ─────────────────────────────────────────────────────────────
+
+print("\n── Bluebook Validator ───────────────────────────")
+
+bb = bluebook.validate_and_format(r)   # Miranda — should be valid
+check(bb["is_valid"], f"BB: Miranda valid → '{bb['suggested']}'")
+
+# Force a bad case: no year
+bad_case = cp.ParsedCitation(
+    raw="test", citation_type=cp.CitationType.CASE,
+    parties="Smith v. Jones", volume="100", reporter="F.3d", page="200",
+)
+bb2 = bluebook.validate_and_format(bad_case)
+check(not bb2["is_valid"], "BB: missing year flagged as invalid")
+check(any("Year" in i for i in bb2["issues"]), f"BB: year issue listed: {bb2['issues']}")
+
+# Court name in parenthetical check
+bad_scotus = cp.ParsedCitation(
+    raw="test", citation_type=cp.CitationType.CASE,
+    parties="Roe v. Wade", volume="410", reporter="U.S.", page="113",
+    court="U.S.", year="1973",
+)
+bb3 = bluebook.validate_and_format(bad_scotus)
+check(not bb3["is_valid"], "BB: spurious court name in SCOTUS cite flagged")
+
+statute_r = bluebook.validate_and_format(r3)
+check(statute_r["is_valid"], f"BB: statute valid → '{statute_r['suggested']}'")
+check("§" in statute_r["suggested"], "BB: § symbol present")
+
+article_r = bluebook.validate_and_format(r4)
+check(article_r["is_valid"], f"BB: article valid → '{article_r['suggested']}'")
+
+print("\nAll tests passed.\n")
