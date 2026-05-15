@@ -36,7 +36,7 @@ When a source is only available on HeinOnline, Westlaw, or LexisNexis, the plugi
 ## Prerequisites
 
 - Node.js 18+
-- Python 3.11+
+- Python 3.10+ (use `python3` on Mac/Linux)
 - Microsoft Word (Desktop — Windows or Mac). Word on the Web also works.
 - A self-signed SSL certificate for localhost (see step 2 below)
 
@@ -44,18 +44,34 @@ When a source is only available on HeinOnline, Westlaw, or LexisNexis, the plugi
 
 ## Setup
 
+### 0 — Clone the repo
+
+```bash
+git clone https://github.com/yan-sudo/lawthesiscitationchecker.git
+cd lawthesiscitationchecker
+git checkout claude/word-citation-checker-EU0X5
+```
+
 ### 1 — Backend
+
+The backend uses only Python's standard library plus `requests` (usually pre-installed on Mac). No virtual environment is strictly required.
 
 ```bash
 cd backend
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+
+# Install the one dependency if not already present
+pip3 install requests
+
+# Start the server
+python3 main.py
 ```
 
-The API will be available at `http://localhost:8000`.  
-Interactive docs: `http://localhost:8000/docs`
+The API will be available at `http://localhost:8000`.
+
+To use a different port:
+```bash
+python3 main.py --port 9000
+```
 
 ### 2 — Frontend (Word add-in task pane)
 
