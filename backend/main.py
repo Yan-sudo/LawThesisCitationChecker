@@ -11,7 +11,8 @@ and review Bluebook citation results for every footnote.
 
 from __future__ import annotations
 
-import cgi
+import email.parser
+import email.policy
 import json
 import os
 import threading
@@ -70,22 +71,13 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "Expected multipart/form-data"})
             return
 
-        form = cgi.FieldStorage(
-            fp=self.rfile,
-            headers=self.headers,
-            environ={
-                "REQUEST_METHOD": "POST",
-                "CONTENT_TYPE": ctype,
-            },
-        )
+        length = int(self.headers.get("Content-Length", 0))
+        body   = self.rfile.read(length)
 
-        file_item = form.get("file")
-        if file_item is None or not hasattr(file_item, "file"):
-            self._json(400, {"error": "No file field in upload"})
+        docx_bytes, filename = _parse_multipart(ctype, body)
+        if docx_bytes is None:
+            self._json(400, {"error": "No file field found in upload"})
             return
-
-        docx_bytes = file_item.file.read()
-        filename   = getattr(file_item, "filename", "upload.docx") or "upload.docx"
 
         try:
             footnotes = extract_footnotes(docx_bytes)
@@ -232,6 +224,31 @@ def _fetch_source(parsed: cp.ParsedCitation) -> dict:
         "full_text_available": False,
         "note": "Citation type could not be identified — Bluebook check only.",
     }
+
+
+# ── Multipart parser (replaces removed cgi module) ───────────────────────────
+
+def _parse_multipart(content_type: str, body: bytes) -> tuple[bytes | None, str]:
+    """
+    Parse a multipart/form-data body and return (file_bytes, filename).
+    Uses the stdlib email module, which handles multipart natively.
+    """
+    # email.parser needs the Content-Type header prepended to the body
+    raw = f"Content-Type: {content_type}\r\n\r\n".encode() + body
+    msg = email.parser.BytesParser(policy=email.policy.compat32).parsebytes(raw)
+
+    for part in msg.get_payload():
+        disposition = part.get("Content-Disposition", "")
+        if 'name="file"' in disposition or "name=file" in disposition:
+            # Extract filename
+            filename = "upload.docx"
+            for token in disposition.split(";"):
+                token = token.strip()
+                if token.lower().startswith("filename"):
+                    filename = token.split("=", 1)[-1].strip().strip('"') or filename
+            return part.get_payload(decode=True), filename
+
+    return None, "upload.docx"
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
