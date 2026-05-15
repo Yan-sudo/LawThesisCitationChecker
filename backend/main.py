@@ -5,8 +5,8 @@ Usage:
     python3 main.py              # http://localhost:8000
     python3 main.py --port 9000
 
-Open http://localhost:8000 in your browser, upload a .docx file,
-and review Bluebook citation results for every footnote.
+Open http://localhost:8000, enter your Gemini API key, upload a .docx,
+and the tool will check every footnote for citation accuracy.
 """
 
 from __future__ import annotations
@@ -20,18 +20,16 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
 import citation_parser as cp
-import bluebook
-from docx_parser import extract_footnotes
+from docx_parser import extract_all
 from fetchers import fetch_case, fetch_statute, fetch_article, fetch_book
+from gemini import check_citation
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
-        pass  # suppress per-request noise; errors still print via log_error
-
-    # ── CORS ──────────────────────────────────────────────────────────────────
+        pass
 
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -43,8 +41,6 @@ class Handler(BaseHTTPRequestHandler):
         self._cors()
         self.end_headers()
 
-    # ── GET ───────────────────────────────────────────────────────────────────
-
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             self._serve_file(os.path.join(HERE, "index.html"), "text/html; charset=utf-8")
@@ -53,17 +49,13 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._json(404, {"error": "not found"})
 
-    # ── POST ──────────────────────────────────────────────────────────────────
-
     def do_POST(self):
         if self.path == "/upload":
             self._handle_upload()
-        elif self.path == "/check":
-            self._handle_check()
         else:
             self._json(404, {"error": "not found"})
 
-    # ── /upload — parse .docx and check all footnotes ─────────────────────────
+    # ── /upload ───────────────────────────────────────────────────────────────
 
     def _handle_upload(self):
         ctype = self.headers.get("Content-Type", "")
@@ -73,19 +65,24 @@ class Handler(BaseHTTPRequestHandler):
 
         length = int(self.headers.get("Content-Length", 0))
         body   = self.rfile.read(length)
+        fields = _parse_multipart(ctype, body)
 
-        docx_bytes, filename = _parse_multipart(ctype, body)
-        if docx_bytes is None:
+        docx_bytes = fields.get("file")
+        if not docx_bytes:
             self._json(400, {"error": "No file field found in upload"})
             return
 
+        filename  = fields.get("_filename", "upload.docx")
+        api_key   = fields.get("api_key", b"").decode(errors="replace").strip() \
+                    if isinstance(fields.get("api_key"), bytes) else fields.get("api_key", "")
+
         try:
-            footnotes = extract_footnotes(docx_bytes)
+            items = extract_all(docx_bytes)
         except ValueError as exc:
             self._json(400, {"error": str(exc)})
             return
 
-        if not footnotes:
+        if not items:
             self._json(200, {
                 "filename": filename,
                 "footnote_count": 0,
@@ -94,15 +91,14 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
-        # Check all footnotes in parallel
-        results: list[dict | None] = [None] * len(footnotes)
+        results: list[dict | None] = [None] * len(items)
 
-        def worker(idx: int, fn: dict):
-            results[idx] = _check_one(fn["text"], fn["number"])
+        def worker(idx: int, item: dict):
+            results[idx] = _process_one(item, api_key)
 
         threads = [
-            threading.Thread(target=worker, args=(i, fn), daemon=True)
-            for i, fn in enumerate(footnotes)
+            threading.Thread(target=worker, args=(i, it), daemon=True)
+            for i, it in enumerate(items)
         ]
         for t in threads:
             t.start()
@@ -111,31 +107,18 @@ class Handler(BaseHTTPRequestHandler):
 
         self._json(200, {
             "filename": filename,
-            "footnote_count": len(footnotes),
+            "footnote_count": len(items),
             "results": results,
         })
 
-    # ── /check — single citation (kept for API use) ────────────────────────────
-
-    def _handle_check(self):
-        length = int(self.headers.get("Content-Length", 0))
-        body   = self.rfile.read(length) if length else b"{}"
-        try:
-            payload = json.loads(body)
-        except json.JSONDecodeError as exc:
-            self._json(400, {"error": f"bad JSON: {exc}"})
-            return
-        result = _check_one(payload.get("text", ""), payload.get("footnote_number"))
-        self._json(200, result)
-
-    # ── Helpers ───────────────────────────────────────────────────────────────
+    # ── HTTP helpers ──────────────────────────────────────────────────────────
 
     def _serve_file(self, path: str, content_type: str):
         try:
             with open(path, "rb") as f:
                 data = f.read()
         except FileNotFoundError:
-            self._json(404, {"error": f"file not found: {path}"})
+            self._json(404, {"error": f"not found: {path}"})
             return
         self.send_response(200)
         self.send_header("Content-Type", content_type)
@@ -154,104 +137,130 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-# ── Citation check logic ──────────────────────────────────────────────────────
+# ── Per-citation processing ────────────────────────────────────────────────────
 
-def _check_one(text: str, footnote_number: Any) -> dict:
-    parsed      = cp.parse(text)
-    bb          = bluebook.validate_and_format(parsed)
+def _process_one(item: dict, api_key: str) -> dict:
+    footnote_text = item["footnote"]
+    sentence      = item["sentence"]
+    number        = item["number"]
+
+    # Fetch source
+    parsed      = cp.parse(footnote_text)
     source_info = _fetch_source(parsed)
 
+    source_text = source_info.get("snippet")
+    source_name = source_info.get("source")
+    source_url  = source_info.get("url")
+    source_note = source_info.get("note")
+
+    # Gemini accuracy check
+    llm = check_citation(
+        api_key      = api_key,
+        main_sentence= sentence,
+        footnote_text= footnote_text,
+        source_text  = source_text,
+        source_name  = source_name,
+    )
+
     return {
-        "footnote_number": footnote_number,
-        "raw":             text,
-        "citation_type":   parsed.citation_type,
-        "bluebook_valid":  bb["is_valid"],
-        "bluebook_issues": bb["issues"],
-        "bluebook_suggested": bb["suggested"],
-        "source_name":     source_info.get("source"),
-        "source_url":      source_info.get("url"),
-        "source_snippet":  source_info.get("snippet"),
-        "full_text_available": source_info.get("full_text_available", False),
-        "source_note":     source_info.get("note"),
+        "number":        number,
+        "footnote":      footnote_text,
+        "sentence":      sentence,
+        "citation_type": parsed.citation_type,
+        "source_name":   source_name,
+        "source_url":    source_url,
+        "source_note":   source_note,
+        "source_snippet":source_text,
+        "llm":           llm,
     }
 
+
+# ── Source fetching ────────────────────────────────────────────────────────────
 
 def _fetch_source(parsed: cp.ParsedCitation) -> dict:
     try:
         if parsed.citation_type == cp.CitationType.CASE:
             return fetch_case(
-                parties=parsed.parties or "",
-                volume=parsed.volume or "",
-                reporter=parsed.reporter or "",
-                page=parsed.page or "",
-                year=parsed.year,
-                pincite=parsed.pincite,
+                parties  = parsed.parties or "",
+                volume   = parsed.volume or "",
+                reporter = parsed.reporter or "",
+                page     = parsed.page or "",
+                year     = parsed.year,
+                pincite  = parsed.pincite,
             )
         if parsed.citation_type == cp.CitationType.STATUTE:
             return fetch_statute(
-                title=parsed.title or "",
-                code=parsed.code or "U.S.C.",
-                section=parsed.section or "",
-                year=parsed.year,
+                title   = parsed.title or "",
+                code    = parsed.code or "U.S.C.",
+                section = parsed.section or "",
+                year    = parsed.year,
             )
         if parsed.citation_type == cp.CitationType.ARTICLE:
             return fetch_article(
-                authors=parsed.authors or "",
-                title=parsed.article_title or "",
-                volume=parsed.volume or "",
-                journal=parsed.journal or "",
-                page=parsed.page or "",
-                pincite=parsed.pincite,
-                year=parsed.year,
+                authors = parsed.authors or "",
+                title   = parsed.article_title or "",
+                volume  = parsed.volume or "",
+                journal = parsed.journal or "",
+                page    = parsed.page or "",
+                pincite = parsed.pincite,
+                year    = parsed.year,
             )
         if parsed.citation_type == cp.CitationType.BOOK:
             return fetch_book(
-                authors=parsed.authors or "",
-                title=parsed.book_title or "",
-                page=parsed.page,
-                year=parsed.year,
-                edition=parsed.edition,
+                authors = parsed.authors or "",
+                title   = parsed.book_title or "",
+                page    = parsed.page,
+                year    = parsed.year,
+                edition = parsed.edition,
             )
     except Exception as exc:
         return {
             "source": "error", "url": None, "snippet": None,
             "full_text_available": False,
-            "note": f"Unexpected error fetching source: {exc}",
+            "note": f"Source lookup error: {exc}",
         }
 
     return {
-        "source": "unknown_type", "url": None, "snippet": None,
+        "source": "unrecognised", "url": None, "snippet": None,
         "full_text_available": False,
-        "note": "Citation type could not be identified — Bluebook check only.",
+        "note": (
+            "Citation format not automatically recognised. "
+            "Gemini will still evaluate accuracy based on the footnote text alone, "
+            "but cannot compare against a retrieved source."
+        ),
     }
 
 
-# ── Multipart parser (replaces removed cgi module) ───────────────────────────
+# ── Multipart parser ───────────────────────────────────────────────────────────
 
-def _parse_multipart(content_type: str, body: bytes) -> tuple[bytes | None, str]:
-    """
-    Parse a multipart/form-data body and return (file_bytes, filename).
-    Uses the stdlib email module, which handles multipart natively.
-    """
-    # email.parser needs the Content-Type header prepended to the body
+def _parse_multipart(content_type: str, body: bytes) -> dict[str, Any]:
+    """Parse multipart/form-data. Returns dict of field_name → bytes (or str for text fields)."""
     raw = f"Content-Type: {content_type}\r\n\r\n".encode() + body
     msg = email.parser.BytesParser(policy=email.policy.compat32).parsebytes(raw)
+    fields: dict[str, Any] = {}
 
     for part in msg.get_payload():
         disposition = part.get("Content-Disposition", "")
-        if 'name="file"' in disposition or "name=file" in disposition:
-            # Extract filename
-            filename = "upload.docx"
-            for token in disposition.split(";"):
-                token = token.strip()
-                if token.lower().startswith("filename"):
-                    filename = token.split("=", 1)[-1].strip().strip('"') or filename
-            return part.get_payload(decode=True), filename
+        name = ""
+        filename = ""
+        for token in disposition.split(";"):
+            token = token.strip()
+            if token.lower().startswith("name="):
+                name = token.split("=", 1)[-1].strip().strip('"')
+            elif token.lower().startswith("filename="):
+                filename = token.split("=", 1)[-1].strip().strip('"')
 
-    return None, "upload.docx"
+        if not name:
+            continue
+        payload = part.get_payload(decode=True)
+        if filename:
+            fields["_filename"] = filename
+        fields[name] = payload
+
+    return fields
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import argparse

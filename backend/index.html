@@ -1,493 +1,439 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Law Citation Checker</title>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Law Citation Accuracy Checker</title>
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Segoe UI",system-ui,sans-serif;font-size:14px;color:#1f1f1f;background:#f3f4f6;min-height:100vh}
 
-body {
-  font-family: "Segoe UI", system-ui, sans-serif;
-  font-size: 14px;
-  color: #1f1f1f;
-  background: #f5f5f5;
-  min-height: 100vh;
-}
+/* Header */
+header{background:#0f4c81;color:#fff;padding:16px 28px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 6px rgba(0,0,0,.3)}
+header h1{font-size:19px;font-weight:600}
+header p{font-size:12px;opacity:.75;margin-top:2px}
 
-/* ── Header ──────────────────────────── */
-header {
-  background: #0f4c81;
-  color: white;
-  padding: 18px 32px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  box-shadow: 0 2px 8px rgba(0,0,0,.25);
-}
-header h1 { font-size: 20px; font-weight: 600; }
-header p  { font-size: 13px; opacity: .8; margin-top: 2px; }
+/* Main layout */
+main{max-width:780px;margin:36px auto;padding:0 18px 60px}
 
-/* ── Upload zone ─────────────────────── */
-.upload-wrap {
-  max-width: 680px;
-  margin: 48px auto;
-  padding: 0 20px;
-}
+/* Card base */
+.card{background:#fff;border:1px solid #e2e4e8;border-radius:10px;padding:22px 24px;margin-bottom:18px}
+.card h2{font-size:15px;font-weight:600;margin-bottom:14px;color:#0f4c81}
 
-.drop-zone {
-  border: 2px dashed #b0c4de;
-  border-radius: 12px;
-  background: white;
-  padding: 56px 32px;
-  text-align: center;
-  cursor: pointer;
-  transition: border-color .2s, background .2s;
-}
-.drop-zone.over, .drop-zone:hover { border-color: #0f4c81; background: #f0f5fb; }
-.drop-zone svg { opacity: .4; margin-bottom: 14px; }
-.drop-zone h2 { font-size: 17px; color: #333; margin-bottom: 6px; }
-.drop-zone p  { font-size: 13px; color: #777; }
+/* API key row */
+.key-row{display:flex;gap:10px;align-items:center}
+.key-row input{flex:1;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:monospace;color:#333}
+.key-row input:focus{outline:none;border-color:#0f4c81;box-shadow:0 0 0 2px rgba(15,76,129,.15)}
+.key-note{font-size:12px;color:#888;margin-top:6px}
+a.key-link{color:#0f4c81}
 
-#file-input { display: none; }
+/* Upload zone */
+.drop-zone{border:2px dashed #c3cfe0;border-radius:8px;padding:44px 24px;text-align:center;cursor:pointer;transition:all .2s}
+.drop-zone.over,.drop-zone:hover{border-color:#0f4c81;background:#f0f5fb}
+.drop-zone h3{font-size:16px;color:#333;margin-bottom:6px}
+.drop-zone p{font-size:13px;color:#777}
+#file-input{display:none}
 
-.btn {
-  display: inline-block;
-  margin-top: 18px;
-  padding: 10px 28px;
-  background: #0f4c81;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  cursor: pointer;
-  font-family: inherit;
-}
-.btn:hover { background: #0a3660; }
+/* Buttons */
+.btn{padding:9px 22px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit;font-weight:500}
+.btn-primary{background:#0f4c81;color:#fff}
+.btn-primary:hover{background:#0a3660}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed}
+.btn-sm{padding:5px 12px;font-size:12px}
 
-/* ── Progress ────────────────────────── */
-.progress-wrap { text-align: center; padding: 48px 20px; }
-.spinner-big {
-  width: 48px; height: 48px;
-  border: 4px solid #d0dce8;
-  border-top-color: #0f4c81;
-  border-radius: 50%;
-  animation: spin .8s linear infinite;
-  margin: 0 auto 16px;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-.progress-wrap p { color: #555; font-size: 14px; }
+/* Progress */
+.progress{text-align:center;padding:50px 20px}
+.spinner{width:44px;height:44px;border:4px solid #dde3ec;border-top-color:#0f4c81;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.progress p{color:#555}
 
-/* ── Results ─────────────────────────── */
-.results-wrap {
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 24px 20px 48px;
-}
-.results-header {
-  display: flex;
-  align-items: baseline;
-  gap: 14px;
-  margin-bottom: 18px;
-}
-.results-header h2 { font-size: 18px; color: #0f4c81; }
-.results-header .meta { font-size: 13px; color: #666; }
+/* Summary bar */
+.summary{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:20px}
+.stat{text-align:center}
+.stat .num{font-size:26px;font-weight:700;color:#0f4c81;display:block}
+.stat .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888}
 
-/* ── Citation card ───────────────────── */
-.card {
-  background: white;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  margin-bottom: 10px;
-  overflow: hidden;
-  transition: box-shadow .15s;
-}
-.card:hover { box-shadow: 0 2px 10px rgba(0,0,0,.08); }
-.card.open  { border-color: #0f4c81; }
+/* Citation card */
+.cit-card{background:#fff;border:1px solid #e2e4e8;border-radius:10px;margin-bottom:12px;overflow:hidden}
+.cit-card.has-error{border-color:#f1a7ab}
+.cit-card.all-good{border-left:4px solid #22c55e}
+.cit-card.has-issues{border-left:4px solid #f59e0b}
+.cit-card.unverified{border-left:4px solid #94a3b8}
 
-.card-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 16px;
-  cursor: pointer;
-  user-select: none;
-}
-.card-header:hover { background: #fafafa; }
+.cit-header{display:flex;align-items:flex-start;gap:10px;padding:13px 16px;cursor:pointer;user-select:none}
+.cit-header:hover{background:#fafafa}
+.fn-badge{background:#0f4c81;color:#fff;border-radius:4px;padding:2px 9px;font-size:12px;font-weight:700;flex-shrink:0;margin-top:1px}
+.cit-preview{flex:1;min-width:0}
+.cit-fn-text{font-size:13px;color:#444;line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;margin-bottom:2px}
+.cit-sentence{font-size:12px;color:#888;overflow:hidden;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;font-style:italic}
+.cit-verdicts{display:flex;gap:5px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;align-items:flex-start}
 
-.fn-num {
-  background: #0f4c81;
-  color: white;
-  border-radius: 4px;
-  padding: 2px 8px;
-  font-size: 12px;
-  font-weight: 700;
-  flex-shrink: 0;
-  margin-top: 2px;
-}
+/* Verdict pills */
+.vp{border-radius:12px;padding:3px 10px;font-size:11px;font-weight:600;white-space:nowrap}
+.vp-supports{background:#dcfce7;color:#166534}
+.vp-not-support{background:#fee2e2;color:#991b1b}
+.vp-cannot{background:#f1f5f9;color:#64748b}
+.vp-accurate{background:#dcfce7;color:#166534}
+.vp-inaccurate{background:#fee2e2;color:#991b1b}
+.vp-no-item{background:#f1f5f9;color:#64748b}
+.vp-source{background:#dbeafe;color:#1d4ed8}
+.vp-no-source{background:#fef3c7;color:#92400e}
+.vp-error{background:#fee2e2;color:#991b1b}
 
-.fn-text {
-  flex: 1;
-  font-size: 13px;
-  color: #444;
-  line-height: 1.5;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-.card.open .fn-text { -webkit-line-clamp: unset; }
+/* Card body */
+.cit-body{border-top:1px solid #f0f0f0;padding:16px 18px;display:flex;flex-direction:column;gap:16px}
 
-.badges { display: flex; gap: 5px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
-.badge {
-  border-radius: 12px;
-  padding: 2px 9px;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.badge-type    { background: #ddeeff; color: #0066cc; }
-.badge-ok      { background: #dff6dd; color: #107c10; }
-.badge-warn    { background: #fff4ce; color: #7a5800; }
-.badge-error   { background: #fde7e9; color: #a4262c; }
-.badge-paywall { background: #f0e6ff; color: #5c00c1; }
+.section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#94a3b8;margin-bottom:6px}
 
-/* ── Card detail ─────────────────────── */
-.card-body {
-  border-top: 1px solid #eee;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
+/* Proposition box */
+.prop-box{background:#f8fafc;border-radius:6px;padding:10px 13px;font-size:13px;color:#334155;line-height:1.6;border-left:3px solid #cbd5e1;font-style:italic}
 
-.section-label {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .6px;
-  color: #888;
-  margin-bottom: 5px;
-}
+/* LLM check rows */
+.check-row{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #f3f4f6}
+.check-row:last-child{border-bottom:none}
+.check-label{font-size:12px;font-weight:600;color:#64748b;width:170px;flex-shrink:0;padding-top:1px}
+.check-content{flex:1;min-width:0}
+.check-verdict{display:inline-block;margin-bottom:4px}
+.check-expl{font-size:12px;color:#555;line-height:1.5}
 
-.issues { list-style: none; }
-.issues li {
-  font-size: 13px;
-  color: #a4262c;
-  padding-left: 14px;
-  position: relative;
-  line-height: 1.5;
-}
-.issues li::before { content: "•"; position: absolute; left: 4px; }
+/* Source */
+.source-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.source-row a{font-size:13px;color:#0f4c81}
+.source-note{font-size:12px;color:#888;font-style:italic;margin-top:4px}
+.source-snippet{background:#fffbee;border-left:3px solid #fcd34d;padding:10px 12px;font-size:12px;line-height:1.7;font-style:italic;color:#334155;max-height:180px;overflow-y:auto;border-radius:0 5px 5px 0;margin-top:8px;white-space:pre-wrap}
 
-.suggested {
-  background: #f4fbf4;
-  border: 1px solid #b7ddb7;
-  border-radius: 5px;
-  padding: 10px 12px;
-  font-family: "Courier New", monospace;
-  font-size: 13px;
-  line-height: 1.6;
-  color: #1a5c1a;
-  margin-top: 6px;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
+/* Overall */
+.overall-box{background:#f0f7ff;border-radius:6px;padding:10px 13px;font-size:13px;color:#1e3a5f;line-height:1.5}
 
-.source-box {
-  background: #f8f8f8;
-  border-radius: 5px;
-  padding: 10px 12px;
-  font-size: 13px;
-  line-height: 1.6;
-}
-.source-box a { color: #0066cc; word-break: break-all; }
-.source-box a:hover { text-decoration: underline; }
+/* Confidence */
+.conf{font-size:11px;color:#94a3b8;margin-top:4px}
 
-.snippet {
-  background: #fffbee;
-  border-left: 3px solid #f0c040;
-  padding: 10px 12px;
-  font-size: 13px;
-  line-height: 1.7;
-  font-style: italic;
-  color: #333;
-  white-space: pre-wrap;
-  max-height: 220px;
-  overflow-y: auto;
-  border-radius: 0 5px 5px 0;
-}
+/* Chevron */
+.chev{flex-shrink:0;width:18px;height:18px;color:#bbb;transition:transform .2s;margin-top:2px}
+.cit-card.open .chev{transform:rotate(180deg)}
 
-.note { font-size: 13px; color: #666; font-style: italic; }
-.ok-msg { font-size: 13px; color: #107c10; }
+/* Error alert */
+.alert{background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:16px 20px;color:#991b1b;font-size:14px;margin-bottom:18px}
 
-.chevron {
-  flex-shrink: 0;
-  width: 18px; height: 18px;
-  color: #aaa;
-  transition: transform .2s;
-}
-.card.open .chevron { transform: rotate(180deg); }
-
-/* ── Error state ─────────────────────── */
-.error-box {
-  background: #fde7e9;
-  border: 1px solid #f1a7ab;
-  border-radius: 8px;
-  padding: 20px 24px;
-  color: #a4262c;
-  max-width: 680px;
-  margin: 32px auto;
-  font-size: 14px;
-}
-
-/* ── Summary bar ─────────────────────── */
-.summary {
-  display: flex;
-  gap: 20px;
-  background: white;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 14px 20px;
-  margin-bottom: 18px;
-  flex-wrap: wrap;
-}
-.summary-item { font-size: 13px; color: #555; }
-.summary-item span { font-weight: 700; color: #0f4c81; }
+/* Upload button row */
+.upload-actions{display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap}
 </style>
 </head>
 <body>
 
 <header>
-  <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-    <rect width="28" height="28" rx="5" fill="rgba(255,255,255,0.2)"/>
-    <path d="M6 7h16M6 11h16M6 15h10M6 19h8" stroke="white" stroke-width="2" stroke-linecap="round"/>
+  <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+    <rect width="26" height="26" rx="5" fill="rgba(255,255,255,.2)"/>
+    <path d="M5 6h16M5 10h16M5 14h10M5 18h7" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
   </svg>
-  <div>
-    <h1>Law Citation Checker</h1>
-    <p>Bluebook validation &amp; source lookup for law review footnotes</p>
-  </div>
+  <div><h1>Law Citation Accuracy Checker</h1>
+  <p>Checks whether each cited authority actually supports the proposition it is cited for</p></div>
 </header>
 
-<div id="app">
-  <!-- Upload screen -->
-  <div id="screen-upload" class="upload-wrap">
-    <div class="drop-zone" id="drop-zone">
-      <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
-        <path d="M28 36V20M28 20l-8 8M28 20l8 8" stroke="#0f4c81" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M10 38v4a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4v-4" stroke="#0f4c81" stroke-width="2.5" stroke-linecap="round"/>
-      </svg>
-      <h2>Drop your .docx file here</h2>
-      <p>or click to browse</p>
-      <button class="btn" onclick="document.getElementById('file-input').click()">Choose file</button>
-      <input type="file" id="file-input" accept=".docx" />
+<main id="app">
+
+  <!-- ── Setup screen ── -->
+  <div id="screen-setup">
+    <!-- API Key -->
+    <div class="card">
+      <h2>Gemini API Key</h2>
+      <div class="key-row">
+        <input type="password" id="api-key" placeholder="AIza…" autocomplete="off"/>
+        <button class="btn btn-sm btn-primary" onclick="toggleKeyVis()">Show</button>
+      </div>
+      <p class="key-note">
+        Get a free key at <a class="key-link" href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a>.
+        Your key is sent only to Google's Gemini API and never stored anywhere.
+      </p>
     </div>
-    <p style="text-align:center;font-size:12px;color:#999;margin-top:14px;">
-      Your document is processed locally — nothing is sent to external servers except citation lookups (CourtListener, CrossRef, etc.).
-    </p>
+
+    <!-- Upload -->
+    <div class="card">
+      <h2>Upload Document</h2>
+      <div class="drop-zone" id="drop-zone">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" style="opacity:.4;margin-bottom:12px">
+          <path d="M24 32V16M24 16l-7 7M24 16l7 7" stroke="#0f4c81" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M8 34v3a3 3 0 003 3h26a3 3 0 003-3v-3" stroke="#0f4c81" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <h3>Drop your .docx file here</h3>
+        <p>or click to browse</p>
+        <input type="file" id="file-input" accept=".docx"/>
+      </div>
+      <div class="upload-actions">
+        <button class="btn btn-primary" id="browse-btn" onclick="document.getElementById('file-input').click()">Choose file</button>
+        <span id="chosen-file" style="font-size:13px;color:#555"></span>
+      </div>
+      <p style="font-size:12px;color:#aaa;margin-top:10px">
+        Your document stays on your machine. Only footnote text and source snippets are sent to Gemini.
+      </p>
+    </div>
+
+    <div style="text-align:right">
+      <button class="btn btn-primary" id="run-btn" onclick="runCheck()" disabled>Check citations</button>
+    </div>
   </div>
 
-  <!-- Progress screen -->
-  <div id="screen-progress" style="display:none" class="progress-wrap">
-    <div class="spinner-big"></div>
-    <p id="progress-msg">Uploading and extracting footnotes…</p>
+  <!-- ── Progress ── -->
+  <div id="screen-progress" style="display:none" class="progress">
+    <div class="spinner"></div>
+    <p id="prog-msg">Uploading document…</p>
   </div>
 
-  <!-- Error screen -->
-  <div id="screen-error" style="display:none" class="error-box">
-    <strong>Error</strong><br/><span id="error-msg"></span>
-    <br/><br/><a href="/" style="color:#a4262c">← Try again</a>
-  </div>
-
-  <!-- Results screen -->
-  <div id="screen-results" style="display:none" class="results-wrap">
-    <div class="results-header">
-      <h2>Results</h2>
-      <span class="meta" id="results-meta"></span>
-      <a href="/" style="margin-left:auto;font-size:13px;color:#0066cc">← Check another document</a>
+  <!-- ── Results ── -->
+  <div id="screen-results" style="display:none">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+      <h2 style="font-size:18px;color:#0f4c81" id="results-title"></h2>
+      <button class="btn btn-sm" style="background:#e5e7eb;margin-left:auto" onclick="reset()">← New document</button>
     </div>
     <div class="summary" id="summary"></div>
+    <div id="alert-box"></div>
     <div id="cards"></div>
   </div>
-</div>
+
+</main>
 
 <script>
-const SOURCE_LABELS = {
-  courtlistener: "CourtListener",
-  uscode_house:  "U.S. House USCODE",
-  ecfr:          "eCFR",
-  crossref:      "CrossRef",
-  openalex:      "OpenAlex",
-  google_books:  "Google Books",
-  not_found:     "Not found",
-  paywalled:     "Paywalled source",
-  error:         "Lookup error",
-  unknown_type:  "Type unknown",
-};
+// ── State ──────────────────────────────────────────────────────────
+let chosenFile = null;
 
-const TYPE_RULE = { case:"10", statute:"12", book:"15", article:"16" };
-
-function show(id) {
-  ["screen-upload","screen-progress","screen-error","screen-results"]
-    .forEach(s => document.getElementById(s).style.display = s === id ? "" : "none");
+// ── Key visibility toggle ──────────────────────────────────────────
+function toggleKeyVis() {
+  const inp = document.getElementById('api-key');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
 }
 
-async function processFile(file) {
-  if (!file.name.endsWith(".docx")) {
-    showError("Please upload a .docx file.");
-    return;
-  }
-  show("screen-progress");
-  document.getElementById("progress-msg").textContent = "Uploading and extracting footnotes…";
+// ── File selection ─────────────────────────────────────────────────
+document.getElementById('file-input').addEventListener('change', e => {
+  setFile(e.target.files[0]);
+});
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('over');
+  if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+});
+dz.addEventListener('click', () => document.getElementById('file-input').click());
+
+function setFile(f) {
+  if (!f) return;
+  chosenFile = f;
+  document.getElementById('chosen-file').textContent = f.name;
+  updateRunBtn();
+}
+document.getElementById('api-key').addEventListener('input', updateRunBtn);
+function updateRunBtn() {
+  const key = document.getElementById('api-key').value.trim();
+  document.getElementById('run-btn').disabled = !(chosenFile && key);
+}
+
+// ── Main run ───────────────────────────────────────────────────────
+async function runCheck() {
+  const key = document.getElementById('api-key').value.trim();
+  if (!chosenFile || !key) return;
+
+  show('screen-progress');
+  document.getElementById('prog-msg').textContent = 'Uploading and analysing citations… this may take a minute.';
 
   const form = new FormData();
-  form.append("file", file);
+  form.append('file', chosenFile);
+  form.append('api_key', key);
 
   let data;
   try {
-    const resp = await fetch("/upload", { method: "POST", body: form });
+    const resp = await fetch('/upload', { method: 'POST', body: form });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ error: resp.statusText }));
       throw new Error(err.error || resp.statusText);
     }
     data = await resp.json();
   } catch (e) {
-    showError(e.message);
+    showAlert(e.message);
+    show('screen-results');
     return;
   }
 
   renderResults(data);
 }
 
-function showError(msg) {
-  document.getElementById("error-msg").textContent = msg;
-  show("screen-error");
-}
-
+// ── Render ─────────────────────────────────────────────────────────
 function renderResults(data) {
-  show("screen-results");
+  show('screen-results');
   const results = data.results || [];
-  const total   = results.length;
-  const warns   = results.filter(r =>
-    !r.bluebook_valid ||
-    r.source_name === "not_found" ||
-    r.source_name === "paywalled"
-  ).length;
-  const found   = results.filter(r =>
-    r.source_name && !["not_found","paywalled","error","unknown_type"].includes(r.source_name)
-  ).length;
+  document.getElementById('results-title').textContent =
+    `${results.length} footnote${results.length !== 1 ? 's' : ''} checked — ${data.filename || ''}`;
 
-  document.getElementById("results-meta").textContent =
-    `${total} footnote${total !== 1 ? "s" : ""} checked`;
-
-  document.getElementById("summary").innerHTML = `
-    <div class="summary-item">Footnotes: <span>${total}</span></div>
-    <div class="summary-item">Sources found: <span>${found}</span></div>
-    <div class="summary-item">Need attention: <span>${warns}</span></div>
+  // Summary stats
+  let supports = 0, issues = 0, unverified = 0;
+  results.forEach(r => {
+    const v = r.llm?.proposition_support?.verdict || '';
+    if (v === 'Supports') supports++;
+    else if (v === 'Does not support') issues++;
+    else unverified++;
+  });
+  document.getElementById('summary').innerHTML = `
+    <div class="stat"><span class="num">${supports}</span><span class="lbl">Support confirmed</span></div>
+    <div class="stat"><span class="num" style="color:#dc2626">${issues}</span><span class="lbl">Potential problems</span></div>
+    <div class="stat"><span class="num" style="color:#94a3b8">${unverified}</span><span class="lbl">Cannot verify</span></div>
   `;
 
-  const cards = document.getElementById("cards");
-  cards.innerHTML = "";
-  results.forEach(r => cards.appendChild(makeCard(r)));
+  document.getElementById('cards').innerHTML = '';
+  results.forEach(r => document.getElementById('cards').appendChild(makeCard(r)));
 }
 
 function makeCard(r) {
-  const card = document.createElement("div");
-  card.className = "card";
+  const llm  = r.llm || {};
+  const prop = llm.proposition_support || {};
+  const par  = llm.parenthetical_accuracy || {};
+  const pin  = llm.pincite_accuracy || {};
+  const propV = prop.verdict || 'Cannot verify';
 
-  // Badges
-  const typeLabel = { case:"Case", statute:"Statute", article:"Article", book:"Book" }[r.citation_type];
-  const srcStatus = (() => {
-    if (!r.source_name) return null;
-    if (r.source_name === "paywalled") return "paywall";
-    if (["not_found","error"].includes(r.source_name)) return "warn";
-    return r.full_text_available ? "ok" : "warn";
-  })();
+  // Card colour class
+  let cls = 'unverified';
+  if (propV === 'Supports') cls = 'all-good';
+  else if (propV === 'Does not support') cls = 'has-issues';
 
-  let badges = "";
-  if (typeLabel) badges += `<span class="badge badge-type">${typeLabel}</span>`;
-  if (!r.bluebook_valid) badges += `<span class="badge badge-warn">Style</span>`;
-  if (srcStatus === "paywall") badges += `<span class="badge badge-paywall">Paywall</span>`;
-  else if (srcStatus === "warn") badges += `<span class="badge badge-error">Not found</span>`;
-  else if (srcStatus === "ok")   badges += `<span class="badge badge-ok">✓ Found</span>`;
+  // Verdict pills for header
+  const propPill  = verdictPill(propV, 'prop');
+  const srcLabel  = sourceLabel(r.source_name);
+  const srcPill   = `<span class="vp ${r.source_url ? 'vp-source' : 'vp-no-source'}">${srcLabel}</span>`;
 
-  // Bluebook section
-  let bbSection = "";
-  if (r.bluebook_valid) {
-    bbSection = `<div class="ok-msg">✓ Citation style looks correct.</div>`;
-  } else {
-    const issues = (r.bluebook_issues || []).map(i => `<li>${i}</li>`).join("");
-    bbSection = `
-      <ul class="issues">${issues}</ul>
-      <div class="suggested">${esc(r.bluebook_suggested)}</div>`;
-  }
-
-  // Source section
-  let srcSection = "";
-  if (!r.source_name || r.source_name === "unknown_type" || r.citation_type === "unknown") {
-    srcSection = `<div class="note">Citation type not recognised — source lookup skipped.</div>`;
-  } else {
-    const label = SOURCE_LABELS[r.source_name] || r.source_name;
-    const link  = r.source_url
-      ? `<a href="${r.source_url}" target="_blank" rel="noreferrer">Open source ↗</a>`
-      : "";
-    srcSection = `<div class="source-box"><strong>${label}</strong> ${link}</div>`;
-    if (r.source_note) srcSection += `<div class="note" style="margin-top:6px">${esc(r.source_note)}</div>`;
-    if (r.source_snippet) srcSection += `<div class="snippet" style="margin-top:8px">${esc(r.source_snippet)}</div>`;
-  }
-
-  const rule = TYPE_RULE[r.citation_type] || "—";
-
-  card.innerHTML = `
-    <div class="card-header" onclick="toggleCard(this)">
-      <span class="fn-num">${r.footnote_number}</span>
-      <span class="fn-text">${esc(r.raw || "(empty)")}</span>
-      <span class="badges">${badges}</span>
-      <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="6 9 12 15 18 9"/>
-      </svg>
+  const div = document.createElement('div');
+  div.className = `cit-card ${cls}`;
+  div.innerHTML = `
+    <div class="cit-header" onclick="toggleCard(this)">
+      <span class="fn-badge">${r.number}</span>
+      <div class="cit-preview">
+        <div class="cit-fn-text">${esc(r.footnote)}</div>
+        ${r.sentence ? `<div class="cit-sentence">"${esc(r.sentence)}"</div>` : ''}
+      </div>
+      <div class="cit-verdicts">${propPill}${srcPill}</div>
+      <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
     </div>
-    <div class="card-body" style="display:none">
-      <div>
-        <div class="section-label">Bluebook${rule !== "—" ? ` (Rule ${rule})` : ""}</div>
-        ${bbSection}
-      </div>
-      <div>
-        <div class="section-label">Source</div>
-        ${srcSection}
-      </div>
-    </div>`;
+    <div class="cit-body" style="display:none">
 
-  return card;
+      ${r.sentence ? `
+      <div>
+        <div class="section-title">Proposition cited</div>
+        <div class="prop-box">${esc(r.sentence)}</div>
+      </div>` : ''}
+
+      <div>
+        <div class="section-title">Accuracy checks</div>
+        <div class="check-row">
+          <span class="check-label">Supports proposition?</span>
+          <div class="check-content">
+            <span class="check-verdict">${verdictPill(propV, 'prop')}</span>
+            <div class="check-expl">${esc(prop.explanation || '')}</div>
+          </div>
+        </div>
+        <div class="check-row">
+          <span class="check-label">Parenthetical accurate?</span>
+          <div class="check-content">
+            <span class="check-verdict">${verdictPill(par.verdict, 'par')}</span>
+            <div class="check-expl">${esc(par.explanation || '')}</div>
+          </div>
+        </div>
+        <div class="check-row">
+          <span class="check-label">Pincite accurate?</span>
+          <div class="check-content">
+            <span class="check-verdict">${verdictPill(pin.verdict, 'pin')}</span>
+            <div class="check-expl">${esc(pin.explanation || '')}</div>
+          </div>
+        </div>
+      </div>
+
+      ${llm.overall ? `
+      <div>
+        <div class="section-title">Overall assessment</div>
+        <div class="overall-box">${esc(llm.overall)}</div>
+        ${llm.confidence ? `<div class="conf">Confidence: ${llm.confidence}</div>` : ''}
+      </div>` : ''}
+
+      <div>
+        <div class="section-title">Source</div>
+        <div class="source-row">
+          <strong style="font-size:13px">${esc(sourceLabel(r.source_name))}</strong>
+          ${r.source_url ? `<a href="${r.source_url}" target="_blank" rel="noreferrer">Open ↗</a>` : ''}
+        </div>
+        ${r.source_note ? `<div class="source-note">${esc(r.source_note)}</div>` : ''}
+        ${r.source_snippet ? `<div class="source-snippet">${esc(r.source_snippet)}</div>` : ''}
+      </div>
+
+    </div>`;
+  return div;
+}
+
+function verdictPill(verdict, type) {
+  const map = {
+    prop: {
+      'Supports':           'vp-supports',
+      'Does not support':   'vp-not-support',
+      'Cannot verify':      'vp-cannot',
+    },
+    par: {
+      'Accurate':           'vp-accurate',
+      'Inaccurate':         'vp-inaccurate',
+      'No parenthetical':   'vp-no-item',
+      'Cannot verify':      'vp-cannot',
+    },
+    pin: {
+      'Accurate':           'vp-accurate',
+      'Inaccurate':         'vp-inaccurate',
+      'No pincite':         'vp-no-item',
+      'Cannot verify':      'vp-cannot',
+    },
+  };
+  const cls = (map[type] || {})[verdict] || 'vp-cannot';
+  return `<span class="vp ${cls}">${esc(verdict || 'Cannot verify')}</span>`;
+}
+
+function sourceLabel(name) {
+  return ({
+    courtlistener: 'CourtListener',
+    uscode_house:  'U.S. House USCODE',
+    ecfr:          'eCFR',
+    crossref:      'CrossRef',
+    openalex:      'OpenAlex',
+    google_books:  'Google Books',
+    not_found:     'Source not found',
+    paywalled:     'Paywalled',
+    error:         'Lookup error',
+    unrecognised:  'Format not recognised',
+  })[name] || name || 'Unknown';
 }
 
 function toggleCard(header) {
   const card = header.parentElement;
-  const body = card.querySelector(".card-body");
-  const open = body.style.display !== "none";
-  body.style.display = open ? "none" : "";
-  card.classList.toggle("open", !open);
+  const body = card.querySelector('.cit-body');
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : '';
+  card.classList.toggle('open', !open);
+}
+
+function showAlert(msg) {
+  document.getElementById('alert-box').innerHTML =
+    `<div class="alert"><strong>Error:</strong> ${esc(msg)}</div>`;
+}
+
+function show(id) {
+  ['screen-setup','screen-progress','screen-results'].forEach(s =>
+    document.getElementById(s).style.display = s === id ? '' : 'none'
+  );
+}
+
+function reset() {
+  chosenFile = null;
+  document.getElementById('file-input').value = '';
+  document.getElementById('chosen-file').textContent = '';
+  document.getElementById('alert-box').innerHTML = '';
+  updateRunBtn();
+  show('screen-setup');
 }
 
 function esc(s) {
-  return String(s)
-    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
-    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-
-// ── Drag & drop ──────────────────────────────────────────
-const dz = document.getElementById("drop-zone");
-dz.addEventListener("dragover",  e => { e.preventDefault(); dz.classList.add("over"); });
-dz.addEventListener("dragleave", () => dz.classList.remove("over"));
-dz.addEventListener("drop", e => {
-  e.preventDefault();
-  dz.classList.remove("over");
-  const f = e.dataTransfer.files[0];
-  if (f) processFile(f);
-});
-document.getElementById("file-input").addEventListener("change", e => {
-  if (e.target.files[0]) processFile(e.target.files[0]);
-});
 </script>
 </body>
 </html>
