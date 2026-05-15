@@ -42,6 +42,7 @@ module.exports = (env, options) => {
       port: 3000,
       server: isDev ? getServerOptions() : undefined,
       headers: { "Access-Control-Allow-Origin": "*" },
+      static: { directory: path.resolve(__dirname) },
     },
     devtool: isDev ? "source-map" : false,
   };
