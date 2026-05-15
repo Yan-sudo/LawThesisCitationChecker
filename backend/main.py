@@ -23,7 +23,6 @@ import citation_parser as cp
 from authority_splitter import split_authorities
 from docx_parser import extract_all
 from fetchers import fetch_case, fetch_statute, fetch_article, fetch_book
-from gemini import check_citation
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -73,9 +72,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "No file field found in upload"})
             return
 
-        filename  = fields.get("_filename", "upload.docx")
-        api_key   = fields.get("api_key", b"").decode(errors="replace").strip() \
-                    if isinstance(fields.get("api_key"), bytes) else fields.get("api_key", "")
+        filename = fields.get("_filename", "upload.docx")
 
         try:
             items = extract_all(docx_bytes)
@@ -95,7 +92,7 @@ class Handler(BaseHTTPRequestHandler):
         results: list[dict | None] = [None] * len(items)
 
         def worker(idx: int, item: dict):
-            results[idx] = _process_one(item, api_key)
+            results[idx] = _process_one(item)
 
         threads = [
             threading.Thread(target=worker, args=(i, it), daemon=True)
@@ -138,47 +135,34 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-# ── Per-footnote processing ───────────────────────────────────────────────────
+# ── Per-footnote processing (source fetch only — Gemini runs in browser) ──────
 
-def _process_one(item: dict, api_key: str) -> dict:
+def _process_one(item: dict) -> dict:
     """
-    Split footnote into individual authorities, check each in parallel,
-    return a tree-shaped result.
+    Split footnote into individual authorities and fetch each source.
+    Gemini accuracy checks are performed client-side using the user's key.
     """
     footnote_text = item["footnote"]
     sentence      = item["sentence"]
     number        = item["number"]
 
     authority_texts = split_authorities(footnote_text)
-
     auth_results: list[dict | None] = [None] * len(authority_texts)
 
-    def check_authority(idx: int, auth_text: str):
+    def fetch_authority(idx: int, auth_text: str):
         parsed      = cp.parse(auth_text)
         source_info = _fetch_source(parsed)
-        source_text = source_info.get("snippet")
-        source_name = source_info.get("source")
-
-        llm = check_citation(
-            api_key       = api_key,
-            main_sentence = sentence,
-            footnote_text = auth_text,
-            source_text   = source_text,
-            source_name   = source_name,
-        )
-
         auth_results[idx] = {
             "text":          auth_text,
             "citation_type": parsed.citation_type,
-            "source_name":   source_name,
+            "source_name":   source_info.get("source"),
             "source_url":    source_info.get("url"),
             "source_note":   source_info.get("note"),
-            "source_snippet":source_text,
-            "llm":           llm,
+            "source_snippet":source_info.get("snippet"),
         }
 
     threads = [
-        threading.Thread(target=check_authority, args=(i, t), daemon=True)
+        threading.Thread(target=fetch_authority, args=(i, t), daemon=True)
         for i, t in enumerate(authority_texts)
     ]
     for t in threads:

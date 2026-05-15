@@ -196,8 +196,9 @@ a.key-link{color:#0f4c81}
 
   <!-- ── Results ── -->
   <div id="screen-results" style="display:none">
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap">
       <h2 style="font-size:18px;color:#0f4c81" id="results-title"></h2>
+      <span id="prog-label" style="font-size:13px;color:#0f4c81;font-style:italic"></span>
       <button class="btn btn-sm" style="background:#e5e7eb;margin-left:auto" onclick="reset()">← New document</button>
     </div>
     <div class="summary" id="summary"></div>
@@ -248,11 +249,11 @@ async function runCheck() {
   if (!chosenFile || !key) return;
 
   show('screen-progress');
-  document.getElementById('prog-msg').textContent = 'Uploading and analysing citations… this may take a minute.';
+  document.getElementById('prog-msg').textContent = 'Uploading document and fetching sources…';
 
+  // Step 1: upload to our server — get back structure + source text (no Gemini yet)
   const form = new FormData();
   form.append('file', chosenFile);
-  form.append('api_key', key);
 
   let data;
   try {
@@ -268,7 +269,95 @@ async function runCheck() {
     return;
   }
 
+  // Step 2: render cards immediately (Gemini checks show as "checking…")
   renderResults(data);
+
+  // Step 3: call Gemini directly from the browser for each authority in parallel
+  const allAuthorities = [];
+  (data.results || []).forEach((r, ri) => {
+    (r.authorities || []).forEach((a, ai) => {
+      allAuthorities.push({ r, a, ri, ai });
+    });
+  });
+
+  document.getElementById('prog-label').textContent =
+    `Checking ${allAuthorities.length} authorit${allAuthorities.length === 1 ? 'y' : 'ies'} with Gemini…`;
+
+  await Promise.all(allAuthorities.map(async ({ r, a, ri, ai }) => {
+    try {
+      const llm = await callGemini(key, r.sentence, a.text, a.source_snippet, a.source_name);
+      a.llm = llm;
+    } catch (e) {
+      a.llm = {
+        proposition_support:    { verdict: 'Cannot verify', explanation: e.message },
+        parenthetical_accuracy: { verdict: 'Cannot verify', explanation: '' },
+        pincite_accuracy:       { verdict: 'Cannot verify', explanation: '' },
+        relevant_quote: null,
+        overall: e.message,
+        confidence: 'Low',
+        error: e.message,
+      };
+    }
+    updateAuthCard(ri, ai, a);
+    updateFootnoteHeader(ri, data.results[ri]);
+  }));
+
+  document.getElementById('prog-label').textContent = '';
+  updateSummary(data.results);
+}
+
+// ── Gemini call (browser → Google directly) ────────────────────────
+async function callGemini(apiKey, sentence, footnoteText, sourceText, sourceName) {
+  const sourceBlock = sourceText
+    ? `SOURCE TEXT (retrieved from ${sourceName || 'unknown'}):\n${sourceText}`
+    : 'SOURCE TEXT: Could not be retrieved automatically.';
+
+  const prompt = `You are a legal citation accuracy checker for law review articles.
+
+MAIN TEXT — the proposition this footnote is cited to support:
+"""${sentence}"""
+
+FOOTNOTE (the citation):
+"""${footnoteText}"""
+
+${sourceBlock}
+
+Evaluate:
+1. PROPOSITION SUPPORT: Does the cited source actually support the proposition?
+2. PARENTHETICAL ACCURACY: If there is a parenthetical after the year, does it accurately describe the source? If none, say so.
+3. PINCITE ACCURACY: If there is a pincite (specific page/section), is it accurate? If none, say so.
+
+Respond ONLY with JSON, no markdown:
+{
+  "proposition_support": {"verdict": "Supports | Does not support | Cannot verify", "explanation": "1-2 sentences"},
+  "parenthetical_accuracy": {"verdict": "Accurate | Inaccurate | No parenthetical | Cannot verify", "explanation": "1-2 sentences"},
+  "pincite_accuracy": {"verdict": "Accurate | Inaccurate | No pincite | Cannot verify", "explanation": "1-2 sentences"},
+  "relevant_quote": "verbatim passage from source most relevant to the proposition, or null",
+  "overall": "one sentence summary",
+  "confidence": "High | Medium | Low"
+}`;
+
+  const resp = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 1024, responseMimeType: 'application/json' },
+      }),
+    }
+  );
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error?.message || `Gemini error ${resp.status}`);
+  }
+
+  const data = await resp.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Empty response from Gemini');
+  return JSON.parse(text);
 }
 
 // ── Render ─────────────────────────────────────────────────────────
@@ -276,54 +365,60 @@ function renderResults(data) {
   show('screen-results');
   const results = data.results || [];
   document.getElementById('results-title').textContent =
-    `${results.length} footnote${results.length !== 1 ? 's' : ''} checked — ${data.filename || ''}`;
+    `${results.length} footnote${results.length !== 1 ? 's' : ''} — ${data.filename || ''}`;
 
-  // Count across all authorities
-  let supports = 0, issues = 0, unverified = 0, authTotal = 0;
+  updateSummary(results);
+  document.getElementById('cards').innerHTML = '';
+  results.forEach((r, ri) => document.getElementById('cards').appendChild(makeFootnoteCard(r, ri)));
+}
+
+function updateSummary(results) {
+  let supports = 0, issues = 0, unverified = 0, authTotal = 0, pending = 0;
   results.forEach(r => {
     (r.authorities || []).forEach(a => {
       authTotal++;
-      const v = a.llm?.proposition_support?.verdict || '';
+      if (!a.llm) { pending++; return; }
+      const v = a.llm.proposition_support?.verdict || '';
       if (v === 'Supports') supports++;
       else if (v === 'Does not support') issues++;
       else unverified++;
     });
   });
-
   document.getElementById('summary').innerHTML = `
     <div class="stat"><span class="num">${results.length}</span><span class="lbl">Footnotes</span></div>
     <div class="stat"><span class="num">${authTotal}</span><span class="lbl">Authorities</span></div>
     <div class="stat"><span class="num" style="color:#16a34a">${supports}</span><span class="lbl">Support confirmed</span></div>
     <div class="stat"><span class="num" style="color:#dc2626">${issues}</span><span class="lbl">Potential problems</span></div>
     <div class="stat"><span class="num" style="color:#94a3b8">${unverified}</span><span class="lbl">Cannot verify</span></div>
+    ${pending ? `<div class="stat"><span class="num" style="color:#f59e0b">${pending}</span><span class="lbl">Checking…</span></div>` : ''}
   `;
-
-  document.getElementById('cards').innerHTML = '';
-  results.forEach(r => document.getElementById('cards').appendChild(makeFootnoteCard(r)));
 }
 
-// ── Footnote card (tree root) ───────────────────────────────────────
-function makeFootnoteCard(r) {
-  const auths = r.authorities || [];
+// Update a single authority card in place once Gemini responds
+function updateAuthCard(ri, ai, a) {
+  const el = document.getElementById(`auth-${ri}-${ai}`);
+  if (!el) return;
+  const fresh = makeAuthCard(a, ai + 1, ri);
+  el.replaceWith(fresh);
+}
 
-  // Overall status: worst verdict across all authorities
-  const worstCls = auths.reduce((cls, a) => {
-    const v = a.llm?.proposition_support?.verdict || '';
-    if (v === 'Does not support') return 'has-issues';
-    if (cls === 'has-issues') return 'has-issues';
-    if (v === 'Supports') return cls === 'unverified' ? 'all-good' : cls;
-    return cls;
-  }, auths.length ? 'all-good' : 'unverified');
-
-  // Header verdict pills: one per authority
-  const authPills = auths.map((a, i) => {
-    const v = a.llm?.proposition_support?.verdict || 'Cannot verify';
+// Refresh the footnote-level badge row after all its authorities are updated
+function updateFootnoteHeader(ri, r) {
+  const pill = document.getElementById(`fn-pills-${ri}`);
+  if (!pill) return;
+  pill.innerHTML = (r.authorities || []).map((a, i) => {
+    if (!a.llm) return `<span class="vp vp-cannot" title="${esc(a.text)}">Auth ${i+1} …</span>`;
+    const v = a.llm.proposition_support?.verdict || 'Cannot verify';
     const cls = v === 'Supports' ? 'vp-supports' : v === 'Does not support' ? 'vp-not-support' : 'vp-cannot';
     return `<span class="vp ${cls}" title="${esc(a.text)}">Auth ${i+1}</span>`;
   }).join('');
+}
 
+// ── Footnote card (tree root) ───────────────────────────────────────
+function makeFootnoteCard(r, ri) {
+  const auths = r.authorities || [];
   const wrap = document.createElement('div');
-  wrap.className = `cit-card ${worstCls}`;
+  wrap.className = 'cit-card unverified';
   wrap.innerHTML = `
     <div class="cit-header" onclick="toggleCard(this)">
       <span class="fn-badge">${r.number}</span>
@@ -331,7 +426,9 @@ function makeFootnoteCard(r) {
         <div class="cit-fn-text">${esc(r.footnote)}</div>
         ${r.sentence ? `<div class="cit-sentence">"${esc(r.sentence)}"</div>` : ''}
       </div>
-      <div class="cit-verdicts">${authPills}</div>
+      <div class="cit-verdicts" id="fn-pills-${ri}">
+        ${auths.map((a, i) => `<span class="vp vp-cannot" title="${esc(a.text)}">Auth ${i+1} …</span>`).join('')}
+      </div>
       <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
     </div>
     <div class="cit-body" style="display:none">
@@ -342,18 +439,18 @@ function makeFootnoteCard(r) {
       </div>` : ''}
       <div>
         <div class="section-title">${auths.length} Authorit${auths.length === 1 ? 'y' : 'ies'}</div>
-        <div class="auth-tree" id="tree-${r.number}"></div>
+        <div class="auth-tree"></div>
       </div>
     </div>`;
 
-  // Build authority sub-cards after inserting into DOM
   const tree = wrap.querySelector('.auth-tree');
-  auths.forEach((a, i) => tree.appendChild(makeAuthCard(a, i + 1)));
+  auths.forEach((a, i) => tree.appendChild(makeAuthCard(a, i + 1, ri)));
   return wrap;
 }
 
 // ── Authority sub-card (tree leaf) ─────────────────────────────────
-function makeAuthCard(a, idx) {
+function makeAuthCard(a, idx, ri) {
+  const ai = idx - 1;
   const llm  = a.llm || {};
   const prop = llm.proposition_support || {};
   const par  = llm.parenthetical_accuracy || {};
@@ -369,7 +466,20 @@ function makeAuthCard(a, idx) {
 
   const div = document.createElement('div');
   div.className = 'auth-card';
+  div.id = `auth-${ri}-${ai}`;
   div.style.cssText = `border-left:3px solid ${borderCol}`;
+
+  // If Gemini hasn't run yet, show a checking spinner
+  if (!a.llm) {
+    div.innerHTML = `
+      <div class="auth-header">
+        <span class="auth-num">${idx}</span>
+        <span class="auth-text">${esc(a.text)}</span>
+        <div class="cit-verdicts"><span class="vp vp-cannot">Checking…</span></div>
+      </div>`;
+    return div;
+  }
+
   div.innerHTML = `
     <div class="auth-header" onclick="toggleAuthCard(this)">
       <span class="auth-num">${idx}</span>
