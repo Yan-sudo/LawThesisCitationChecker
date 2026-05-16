@@ -1,50 +1,61 @@
-# Law Thesis Citation Checker
+# LexCheck — Law Citation Accuracy Checker
 
-A Microsoft Word add-in that checks Bluebook citation accuracy for every footnote in a law review paper. For each citation it:
+A local web app that checks whether every cited authority in a law review paper actually supports the proposition it is cited for. Upload a `.docx`, enter your Gemini API key, and LexCheck checks each footnote — splitting multi-authority footnotes into individual citations, fetching sources, and using Gemini with Google Search grounding to evaluate accuracy.
 
-- Detects the citation type (case, statute, journal article, or book)
-- Validates Bluebook format (rules 10, 12, 15, 16)
-- Fetches the original source from free public databases
-- Shows relevant source text for manual accuracy comparison
-- Flags sources only available behind paywalls (HeinOnline, Westlaw, LexisNexis)
-- Lets you apply a corrected Bluebook form with one click
+---
+
+## What it does
+
+For each authority in each footnote it:
+
+- Identifies the citation type and the Bluebook rule that applies
+- Fetches the source from free public databases where possible
+- Uses **Gemini with Google Search** to find and read the source online
+- Reports what it actually compared against (original source / secondary source / footnote text only)
+- Returns a verdict: **Supports** / **Does not support** / **Questionable** / **Cannot verify**
+- Checks parenthetical accuracy and pincite accuracy
+- Extracts a verbatim relevant passage from the source
 
 ---
 
 ## Architecture
 
 ```
-manifest.xml          ← Word add-in manifest (points to localhost:3000)
-taskpane/             ← Frontend: TypeScript + React (Office.js)
-backend/              ← Backend: Python FastAPI
+backend/
+  main.py               ← stdlib HTTP server (no dependencies beyond Python)
+  docx_parser.py        ← extracts footnotes + body sentences from .docx
+  citation_parser.py    ← Bluebook citation type detection (Rules 4, 10–16)
+  authority_splitter.py ← splits multi-authority footnotes; handles Compare/with
+  fetchers/             ← CourtListener, USCODE, eCFR, CrossRef, OpenAlex, Google Books
+  index.html            ← single-file UI served by the server
 ```
 
-**Free data sources used:**
+**Gemini runs entirely in the browser.** Your API key is never sent to the local Python server — it goes directly from your browser to Google's API.
 
-| Source type | API |
+**Free data sources:**
+
+| Citation type | Source |
 |---|---|
-| Court cases | [CourtListener](https://www.courtlistener.com/api/) |
-| Federal statutes (USC) | [U.S. House USCODE](https://uscode.house.gov/) |
-| Federal regulations (CFR) | [eCFR](https://www.ecfr.gov/) |
-| Journal articles (metadata) | [CrossRef](https://api.crossref.org/) + [OpenAlex](https://openalex.org/) |
+| Court cases | [CourtListener](https://www.courtlistener.com/api/) (free, no key) |
+| Federal statutes (U.S.C.) | [U.S. House USCODE](https://uscode.house.gov/) |
+| Federal regulations (C.F.R.) | [eCFR](https://www.ecfr.gov/) |
+| Journal articles | [CrossRef](https://api.crossref.org/) + [OpenAlex](https://openalex.org/) |
 | Books | [Google Books](https://books.google.com/) |
-
-When a source is only available on HeinOnline, Westlaw, or LexisNexis, the plugin displays a clear notice so you can look it up yourself.
+| Everything else | Gemini Google Search grounding |
 
 ---
 
 ## Prerequisites
 
-- Node.js 18+
-- Python 3.10+ (use `python3` on Mac/Linux)
-- Microsoft Word (Desktop — Windows or Mac). Word on the Web also works.
-- A self-signed SSL certificate for localhost (see step 2 below)
+- **Python 3.10+** — uses only the standard library; no `pip install` needed
+- A free **Gemini API key** — get one at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+- A `.docx` file with footnotes
 
 ---
 
 ## Setup
 
-### 0 — Clone the repo
+### 1 — Clone the repo
 
 ```bash
 git clone https://github.com/yan-sudo/lawthesiscitationchecker.git
@@ -52,117 +63,135 @@ cd lawthesiscitationchecker
 git checkout claude/word-citation-checker-EU0X5
 ```
 
-### 1 — Backend
-
-The backend uses only Python's standard library plus `requests` (usually pre-installed on Mac). No virtual environment is strictly required.
+### 2 — Start the server
 
 ```bash
 cd backend
-
-# Install the one dependency if not already present
-pip3 install requests
-
-# Start the server
 python3 main.py
 ```
 
-The API will be available at `http://localhost:8000`.
+The app is now available at **http://localhost:8000**.
 
 To use a different port:
+
 ```bash
 python3 main.py --port 9000
 ```
 
-### 2 — Frontend (Word add-in task pane)
+### 3 — Open the app
 
-```bash
-cd taskpane
-npm install
+Open **http://localhost:8000** in your browser.
 
-# Install the Office Add-in dev certificate (one-time, requires admin/sudo)
-npx office-addin-dev-certs install
+1. Paste your Gemini API key into the **Step 1** field (tick *Remember key* to save it in your browser's local storage).
+2. Drop or select your `.docx` file in the **Step 2** field.
+3. Click **Check Citations**.
 
-npm run dev
-```
-
-The task pane is served at `https://localhost:3000/taskpane.html`.
-
-### 3 — Sideload the add-in into Word
-
-#### Windows (Desktop)
-1. Copy the full path to `manifest.xml`.
-2. In Word: **File → Options → Trust Center → Trust Center Settings → Trusted Add-in Catalogs**.
-3. Add a catalog URL of `file:///C:/path/to/LawThesisCitationChecker` and check **Show in Menu**.
-4. Restart Word, then **Insert → My Add-ins → Shared Folder** → select **Citation Checker**.
-
-#### Mac (Desktop)
-```bash
-# Copy manifest to the Word add-ins folder
-cp manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/
-```
-Then in Word: **Insert → My Add-ins** → the add-in should appear.
-
-#### Word on the Web
-1. Go to **Insert → Add-ins → Upload My Add-in**.
-2. Browse to `manifest.xml` and click **Upload**.
+That's it — no Node.js, no npm, no Word sideloading, no certificates.
 
 ---
 
 ## Usage
 
-1. Open a law review paper (`.docx`) in Word.
-2. Click **Home → Check Citations** to open the task pane.
-3. Click **Scan footnotes** — every footnote is read and checked simultaneously.
-4. Each footnote card shows:
-   - Detected citation type badge
-   - Bluebook issues (if any) with a corrected form
-   - Source status: ✓ Found / Paywall / Not found
-   - Relevant text from the source (where available)
-5. Click **Apply correction** to replace the citation text in the document.
+After clicking **Check Citations**:
+
+1. The server extracts all footnotes and the main-body sentence each footnote is attached to.
+2. Source metadata is fetched from free databases (CourtListener, USCODE, etc.).
+3. Result cards appear immediately. Each footnote expands into authority sub-cards.
+4. Gemini checks each authority in the background (up to 3 in parallel with automatic retry on rate limits).
+
+Each authority card shows:
+
+| Field | Meaning |
+|---|---|
+| **Bluebook rule badge** | Which rule was matched (e.g. *Rule 10 · Cases — full citation*) |
+| **Compared against** | Green = original source read · Amber = secondary source · Red = source not found |
+| **Supports proposition?** | Supports / Does not support / Questionable / Cannot verify |
+| **Parenthetical accurate?** | Whether the parenthetical description matches the source |
+| **Pincite accurate?** | Whether the page/section number points to the relevant passage |
+| **Relevant passage** | Verbatim quote from what Gemini read |
+| **Pages read by Gemini** | Clickable links to every page Gemini consulted via Google Search |
+
+Use the **filter bar** to show only Issues, Questionable, Supported, or Unverified authorities. Use **Export** to save the full results as JSON.
 
 ---
 
-## Supported citation patterns
+## Supported citation patterns (Bluebook 21st ed.)
 
-### Cases — Bluebook Rule 10
+### Cases — Rule 10
 ```
 Miranda v. Arizona, 384 U.S. 436 (1966)
-Brown v. Bd. of Educ., 347 U.S. 483, 495 (1954)      ← with pincite
-Chevron U.S.A. Inc. v. NRDC, 467 U.S. 837 (1984)
-Palsgraf v. Long Island R.R., 248 N.Y. 339 (1928)
+Brown v. Bd. of Educ., 347 U.S. 483, 495 (1954)
+Miranda, 384 U.S. at 444                              ← short form (Rule 10)
 ```
 
-### Statutes — Bluebook Rule 12
+### Statutes — Rule 12
 ```
 42 U.S.C. § 1983 (2018)
 15 U.S.C. §§ 1–7 (2018)
 29 C.F.R. § 541.100 (2023)
 ```
 
-### Journal articles — Bluebook Rule 16
+### Constitutions — Rule 11
+```
+U.S. Const. amend. XIV, § 1
+U.S. Const. art. I, § 8, cl. 3
+Cal. Const. art. I, § 7
+```
+
+### Restatements & Model Codes — Rule 12.9.4
+```
+Restatement (Second) of Contracts § 71 (1981)
+Restatement (Third) of Torts § 1 (2010)
+Model Penal Code § 2.02 (Official Draft 1962)
+Uniform Commercial Code § 2-207
+```
+
+### Legislative & Executive Materials — Rule 13
+```
+H.R. 1234, 117th Cong. § 2 (2021)
+S. Rep. No. 103-7, at 10 (1993)
+H.R. Rep. No. 104-369, at 5 (1995)
+Exec. Order No. 13,228, 66 Fed. Reg. 51,812 (Oct. 9, 2001)
+148 Cong. Rec. S1234 (daily ed. Feb. 14, 2002)
+```
+
+### Journal articles — Rule 16
 ```
 Katharine T. Bartlett, Feminist Legal Methods, 103 Harv. L. Rev. 829 (1990)
 Richard A. Posner, The Law and Economics of Contract Interpretation, 83 Tex. L. Rev. 1581, 1600 (2005)
 ```
 
-### Books — Bluebook Rule 15
+### Books — Rule 15
 ```
 William L. Prosser, Handbook of the Law of Torts 23 (4th ed. 1971)
 Laurence H. Tribe, American Constitutional Law 567 (2d ed. 1988)
 ```
 
+### Short forms — Rules 4.1 & 4.2
+```
+Id.
+Id. at 445
+Smith, supra note 5, at 42
+supra note 5
+infra note 10
+```
+
+### Multi-authority footnotes (Rule 1.2 signals)
+The splitter handles semicolon-separated lists and `Compare X, with Y` constructions. Introductory signals (`See`, `See also`, `But see`, `Cf.`, `E.g.,`, `Accord`, `Contra`) and `[hereinafter ...]` annotations are stripped automatically before each authority is parsed and checked individually.
+
 ---
 
 ## Extending
 
-- **Add a reporter**: update `REPORTERS` list in `backend/citation_parser.py`.
-- **Add a journal pattern**: extend `JOURNAL_WORDS` regex in `citation_parser.py`.
-- **Deploy backend**: replace `http://localhost:8000` in `taskpane/src/App.tsx` with your hosted URL, then rebuild (`npm run build`) and update `manifest.xml` with the production task pane URL.
+- **Add a reporter abbreviation**: update `REPORTERS` in `backend/citation_parser.py`.
+- **Add a journal pattern**: extend `JOURNAL_WORDS` in `citation_parser.py`.
+- **Change the port**: `python3 main.py --port 9000` (default: 8000).
+- **Run tests**: `cd backend && python3 test_core.py` (36 tests, no network calls).
 
 ---
 
-## Limitations
+## Privacy
 
-- Full text is not always available for law review articles — CrossRef and OpenAlex return metadata and open-access links only; most older law review articles are on HeinOnline.
-- Google Books page-level snippet retrieval requires a paid API key; the free tier returns descriptions only.
-- The Bluebook parser uses regex and covers the most common patterns. Unusual citation forms (id., supra, hereinafter, string citations) are not yet handled.
+- Your `.docx` is processed on your local machine by the Python server and is never uploaded to any external service.
+- Footnote text and pre-fetched source snippets are sent to Google's Gemini API as part of the accuracy-checking prompt.
+- Your Gemini API key is stored only in your browser's `localStorage` if you tick *Remember key*; it is never sent to the local server.
