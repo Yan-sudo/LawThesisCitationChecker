@@ -21,16 +21,9 @@
 
 ---
 
-## 1. 核心原则：为什么我们现在不搞分支？
+## 1. 核心原则：单线冲刺，分支护航
 
-一句话：**两个人 + AI 自动写码 = 分支是噪音。**
-
-在传统团队里，Git 分支用来隔离多人并行开发。但在我们的 vibe-coding 模式下：
-- 所有代码都是 AI 辅助生成的，改得快、试得猛；
-- 你和我不是同时在改同一个文件——你是出题者，我是执行者；
-- `master` 是你测试的基准线，每次迭代都是 "pull → test → log feedback → 我修 → pull → test again" 的单线循环。
-
-所以我们走的是 **"主分支单线冲刺"** 模式：
+在大部分日常迭代中，我们走 **"主分支单线冲刺"** 模式——因为只有两个人，且你不会和我同时改同一个文件：
 
 ```
 master (唯一事实来源)
@@ -41,7 +34,9 @@ master (唯一事实来源)
   └── 我读 log → Cursor 精准修复 → 下一轮
 ```
 
-不是不专业，是这个阶段最高效。后面项目长大了再聊分支策略。
+但当改动较大、涉及多个文件、或你想在我的改动审核完之前不被阻塞地继续测试时，就该用 **feature branch** 出场了。分支不是噪音——它是你的**安全网**：哪怕分支上的代码炸了，切回 `master` 一切照旧。
+
+Git 的具体操作见 **附录 A：Git 使用指南**——只背 5 条命令就够用。
 
 ---
 
@@ -237,9 +232,9 @@ master (唯一事实来源)
 
 ## 6. 一些约定俗成 (Norms)
 
-- **Commit message 用英文**，格式：`fix: 简短描述` 或 `feat: 简短描述`。GitHub 上好看，你能看懂，我不用翻译两遍。
+- **Commit message 用英文**，格式：`feat(scope): 简短描述` 或 `fix(scope): 简短描述`。遵循 [Conventional Commits](https://www.conventionalcommits.org/)，GitHub 上好看，你能看懂，我不用翻译两遍。
 - **Feedback-Log.md 用中文**，因为你写得最舒服，我也看得最准。
-- **不要 force push**。永远不要。即使是凌晨三点脑子不清醒的时候也不行。
+- **Force push 规则**：只允许在自己个人的 `feature/` 或 `fix/` 分支上使用 `git push --force-with-lease`（详见附录 A）。**永远不要**对 `master` 做 force push。
 - **每次 pull 前确认自己没有未提交的改动**（`git status`），避免冲突。
 - **遇到任何不确定的事，先写进 Feedback-Log.md**。不要猜，不要自己 debug 半个小时然后放弃——你放弃的半小时可能是我读一条 log 后五分钟解决的问题。
 
@@ -265,3 +260,190 @@ master (唯一事实来源)
 ---
 
 *下一次提交见。*
+
+---
+
+## 附录 A：Git 使用指南（团队版）
+
+> **写给从未用过 Git 的队友。** 你不需要理解 Git 的原理，只需要记住 5 条命令就能活下来。其余的当字典查。
+
+---
+
+### A.1 这是什么？为什么用 Git？
+
+| 你的日常类比 | Git 的对应 |
+|-------------|-----------|
+| 写论文时的"另存为 v2.docx"、"另存为 最终版.docx" | Git 自动帮你存档，不用手动另存 |
+| Word 的"修订模式" | Git 的 `diff`——精确到每一行谁改了什么 |
+| Dropbox 的同步 | `git push` / `git pull`——推上去 / 拉下来 |
+| 写了一段觉得不对，想回到昨天的版本 | `git checkout <commit>`——时光机 |
+
+一句话：**Git 就是带时间机器的同步网盘。** 你只需要学会存（commit）、拉（pull）、推（push）、开新轨道（branch）就行。
+
+---
+
+### A.2 分支模型
+
+我们采用简化的 GitHub Flow（Rebase 版），目标是让提交历史像一条直线一样干净。
+
+| 分支类型 | 命名格式 | 用途 | 谁能 push |
+|----------|---------|------|-----------|
+| `master` | 固定 | 始终可运行的稳定版本 | **禁止直接 push**（只有我通过 merge 更新） |
+| `feature/<描述>` | e.g. `feature/add-cftc-rules` | 新功能开发 | 你自己的分支，随意 |
+| `fix/<描述>` | e.g. `fix/bluebook-rule-14.3` | Bug 修复 | 你自己的分支，随意 |
+
+**你的分支就在你的本地玩，改炸了也不影响我。**
+
+---
+
+### A.3 新手最小命令集（背这 5 条就够日常用了）
+
+```bash
+# 1. 开始干活前：同步最新代码
+git checkout master
+git pull --ff-only
+
+# 2. 从 master 开一条你自己的分支
+git checkout -b feature/<描述>
+
+# 3. 存盘（提交你的改动）
+git add .
+git commit -m "feat(scope): 用英文写你改了什么"
+
+# 4. 推到远程（这样我也能看到）
+git push -u origin feature/<描述>
+
+# 5. 切回 master 更新
+git checkout master
+git pull --ff-only
+```
+
+> **口诀：** checkout → pull → branch → add → commit → push。六步走，一步不落。
+
+---
+
+### A.4 进阶操作：同步 master + Rebase（保持历史干净）
+
+当你的 feature 分支写了一段时间，`master` 上可能有我的新提交。你需要把 master 的最新代码"嫁接"到你的分支上：
+
+```bash
+# 1. 确保在 feature 分支上
+git checkout feature/<描述>
+
+# 2. 拉取远程最新信息
+git fetch origin
+
+# 3. 把你的分支"移植"到最新 master 上
+git rebase origin/master
+
+# 4. 如果有冲突（CONFLICT）：
+#    → 打开冲突文件，找到 <<<<<<< 和 >>>>>>> 标记
+#    → 手动决定保留哪段代码，删掉标记
+#    → git add <修复后的文件>
+#    → git rebase --continue
+
+# 5. 强推到远程（仅限你自己的 feature 分支！）
+git push --force-with-lease
+```
+
+> **为什么要 rebase？** 因为 rebase 让你的改动"接"在最新 master 的末尾，历史像一条直线。merge 会产生一个无意义的"合并节点"，如图：
+>
+> Rebase（干净）：`A → B → C → 你的改动`
+> Merge（杂乱）：`A → B → C → (merge commit) ← 你的改动`
+
+---
+
+### A.5 Worktree：同时开多个分支目录
+
+有时你想一边在 `master` 上跑测试，一边在另一个分支上改代码，不需要来回 `checkout`。
+
+```bash
+# 在仓库旁边再开一个工作目录，对应某条分支
+git worktree add ../law-thesis-feature feature/<描述>
+
+# 用法：会在上级目录创建一个 law-thesis-feature 文件夹，
+# 里面的代码就是 feature/<描述> 分支的内容。
+# 两个文件夹互不干扰，可以同时在两个 VS Code 窗口里打开。
+
+# 查看所有 worktree
+git worktree list
+
+# 用完了删掉
+git worktree remove ../law-thesis-feature
+```
+
+> **适用场景：** 你在 feature 分支上改 Bluebook 规则，同时想切回 master 跑一下我的最新测试。不用 stash、不用 commit，直接在新窗口打开 worktree 目录就行。
+
+---
+
+### A.6 Commit 规范
+
+遵循 [Conventional Commits](https://www.conventionalcommits.org/)：
+
+```
+<type>(<scope>): <简短描述>
+```
+
+| Type | 含义 | 例子 |
+|------|------|------|
+| `feat` | 新功能 | `feat(parser): add CFTC administrative order support` |
+| `fix` | 修 bug | `fix(search): enforce exact year-month match` |
+| `docs` | 文档 | `docs(playbook): update git workflow section` |
+| `refactor` | 重构（不改功能，只改结构） | `refactor(bluebook): extract rule 14.3 to separate function` |
+| `test` | 测试 | `test(citation): add edge case for In re format` |
+
+**每次 commit 只做一件事**，不要一个 commit 里又改规则又修 UI 又改文档——分开提交，方便回头找。
+
+---
+
+### A.7 冲突处理口诀
+
+遇到 `CONFLICT` 不要慌，三个动作：
+
+1. **找标记：** 打开冲突文件，搜 `<<<<<<<` 和 `>>>>>>>`
+2. **做决定：** 两个版本选一个（或手动合并），删掉标记符号
+3. **继续走：** `git add .` → `git rebase --continue`
+
+搞不定？截图发我，或者直接把文件丢给我。
+
+---
+
+### A.8 明确禁止项
+
+| 禁止事项 | 原因 |
+|----------|------|
+| 直接 `git push` 到 `master` | master 是稳定基线，只能通过 merge 进入 |
+| 对 `master` 做 force push | 会覆盖远程历史，其他人的代码可能丢失 |
+| 用 `git pull`（不带 `--ff-only`） | 默认会产生无意义的 merge commit |
+| 在 `master` 上直接改代码 | 容易忘记切分支，混在一起 |
+| 提交不完整的代码 | 让别人 pull 下来跑不动 |
+
+---
+
+### A.9 推荐一次性配置（让你少踩坑）
+
+在你的终端里运行以下三行，以后 `pull` 就不会自动产生 merge commit 了：
+
+```bash
+git config --global pull.rebase true
+git config --global pull.ff only
+git config --global rebase.autoStash true
+```
+
+---
+
+### A.10 新人最小命令集卡片（打印贴在显示器旁边）
+
+```
+┌─────────────────────────────────────────────────┐
+│  Git 日常四步                                  │
+│                                                 │
+│  ① git pull --ff-only       拉最新             │
+│  ② git checkout -b feat/xxx  开新分支           │
+│  ③ git add . && git commit -m "feat: ..."  存盘 │
+│  ④ git push -u origin feat/xxx  推到远程        │
+│                                                 │
+│  出冲突了？ git rebase --continue               │
+│  搞不定？   直接微信找我                         │
+└─────────────────────────────────────────────────┘
+```
