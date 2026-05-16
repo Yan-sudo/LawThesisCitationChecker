@@ -346,16 +346,17 @@ main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
 
 /* ── Relevant quote ──────────────────────────────── */
 .quote-box{
-  background:#fffbeb;border:1px solid #fde68a;
-  border-radius:8px;padding:13px 16px;
+  background:#fffbeb;border:1.5px solid #fbbf24;
+  border-radius:8px;padding:14px 18px;
+  box-shadow:0 1px 4px rgba(251,191,36,.18);
 }
 .quote-box blockquote{
-  font-size:13px;line-height:1.8;color:var(--text);font-style:italic;
-  border-left:3px solid var(--amber);padding-left:12px;margin:0;
+  font-size:13.5px;line-height:1.85;color:#1c1917;font-style:italic;
+  border-left:4px solid var(--amber);padding-left:14px;margin:0;
 }
 .quote-label{
   font-size:10.5px;font-weight:700;text-transform:uppercase;
-  letter-spacing:.5px;color:var(--amber);margin-bottom:8px;
+  letter-spacing:.5px;color:#b45309;margin-bottom:9px;
 }
 
 /* ── Overall / confidence ────────────────────────── */
@@ -971,57 +972,73 @@ function urlReliability(url) {
 // ── Gemini call ────────────────────────────────────
 async function callGemini(apiKey, sentence, footnoteText, sourceSnippet, sourceName) {
   const snippetBlock = sourceSnippet
-    ? `\nPRE-FETCHED SOURCE EXCERPT (from ${sourceName || 'database'}):\n${sourceSnippet}\n`
+    ? `\nPRE-FETCHED EXCERPT (${sourceName || 'database'}):\n${sourceSnippet}\n`
     : '';
 
-  const prompt = `You are a legal citation accuracy checker for law review articles.
+  const prompt = `You are a legal citation accuracy checker. Your verdict must be grounded in text you can directly quote from the source — never from inference or general knowledge.
 
-MAIN TEXT — the proposition this footnote is cited to support:
-"""${sentence || '(No main-text sentence could be extracted)'}"""
+PROPOSITION (what the author claims this source supports):
+"""${sentence || '(no main-text sentence extracted)'}"""
 
-FOOTNOTE (the citation):
+CITED AUTHORITY:
 """${footnoteText}"""
 ${snippetBlock}
-INSTRUCTIONS — follow these steps in order:
+══════════════════════════════════════════
+STEP 1 — FIND THE EXACT DOCUMENT
 
-STEP 1 — FIND AND READ THE SOURCE
-Use Google Search to locate and read the actual cited authority (case, statute, article, or book). You must base your verdict on what you actually read from the source, not on the citation text alone.
+Search for the specific document using its identifying information:
+• Case (e.g. 384 U.S. 436): search "[parties] [volume] [reporter] [page] full opinion" → navigate to the actual court opinion on CourtListener, Justia, or the court's own site. Do NOT stop at a case summary.
+• Statute (e.g. 42 U.S.C. § 1983): search "42 USC 1983 text" → find the statutory text on law.cornell.edu or uscode.house.gov.
+• Article: search the exact title + author + journal → find the article on SSRN, HeinOnline, or the journal's website.
+• Agency order (e.g. CFTC Docket No. 22-09): search the exact docket or release number → navigate to the specific order page on the agency's site, not the enforcement actions index.
+• Book: search title + author + edition → find a page or preview showing the cited page number.
 
-STEP 2 — RECORD WHAT YOU COMPARED AGAINST
-After searching, classify what basis you used:
-- "original_source": you found and read the actual cited document (the court opinion, the statutory text, the full article, the book)
-- "secondary_source": you found and read a reliable secondary source that closely describes it (an official case summary, a government summary, a reputable legal database entry)
-- "footnote_only": you could NOT find any usable source and are reasoning only from the citation text itself
+Navigate past index pages and search results to reach the document itself.
 
-STEP 3 — EVALUATE
-1. PROPOSITION SUPPORT: Based ONLY on what you actually read (not the footnote text alone), does the authority support the proposition?
-   - "Supports": you read the source and it clearly supports the proposition.
-   - "Does not support": you read the source and it does not support the proposition.
-   - "Questionable": the source is ambiguous, only partly supports the proposition, or you could only reach a secondary/summary source rather than the original.
-   - "Cannot verify": you could not find any version of the source online.
-   IMPORTANT: if comparison_basis is "footnote_only", the verdict MUST be "Cannot verify". If it is "secondary_source", the verdict MUST be "Supports", "Does not support", or "Questionable" — never "Supports" unless you are confident the secondary source reliably reflects the original.
-2. PARENTHETICAL ACCURACY: If the footnote has a parenthetical (e.g. "(holding that…)"), does it accurately describe the source? If none, say so.
-3. PINCITE ACCURACY: If there is a specific page or section number cited, is that the location of the relevant passage? If none, say so.
-4. RELEVANT QUOTE: Extract the single most relevant verbatim passage from whatever you actually read.
+STEP 2 — LOCATE AND QUOTE THE PASSAGE
 
-Respond ONLY with valid JSON (no markdown fences). Fill source_url_read FIRST before deciding comparison_basis:
+Once you have the document open:
+• If a pincite is cited (e.g. "at 444", "§ 2(b)"), jump to that specific page or section.
+• If a parenthetical is quoted (e.g. "(holding that…)"), find those exact words.
+• Copy verbatim the passage most relevant to the proposition. Minimum 10 words. This quote IS your evidence.
+
+STEP 3 — VERDICT FROM THE QUOTE
+
+Judge based only on what you quoted — not on what you know about the case generally:
+• "Supports": the quoted text directly and clearly supports the proposition.
+• "Does not support": the quoted text contradicts or fails to support the proposition.
+• "Questionable": the text is ambiguous, only partially supports it, or you had to rely on a summary rather than the original.
+• "Cannot verify": you could not find and quote the specific document.
+
+══════════════════════════════════════════
+STRICT RULES — these override everything else:
+
+R1. relevant_quote must be verbatim text from the document — not a paraphrase, not a description. If you cannot produce a real quote, set it to null and verdict MUST be "Cannot verify".
+R2. source_url_read must be the URL of the specific page containing the quote — not a search page, not an index page. If null → comparison_basis MUST be "footnote_only" → verdict MUST be "Cannot verify".
+R3. comparison_basis "footnote_only" → verdict MUST be "Cannot verify". No exceptions.
+R4. verdict "Supports" or "Does not support" requires a non-null relevant_quote of at least 10 words.
+R5. If the URL you found is a general index or homepage (not the specific document page), use comparison_basis "secondary_source" at best.
+
+Respond ONLY with valid JSON — no markdown fences, no commentary:
 {
-  "source_url_read": "REQUIRED: the exact URL you navigated to and read. If you did not visit any page, write null here — and then comparison_basis MUST be footnote_only",
-  "comparison_basis": "original_source (only if source_url_read is a real URL to the actual document) | secondary_source (only if source_url_read is a real URL to a reliable summary) | footnote_only (if source_url_read is null)",
-  "comparison_source_description": "one sentence describing what you read, e.g. 'Full CFTC order PDF at cftc.gov' or 'Could not locate source online'",
-  "proposition_support": {"verdict": "Supports | Does not support | Questionable | Cannot verify", "explanation": "1-2 sentences"},
-  "parenthetical_accuracy": {"verdict": "Accurate | Inaccurate | No parenthetical | Cannot verify", "explanation": "1-2 sentences"},
-  "pincite_accuracy": {"verdict": "Accurate | Inaccurate | No pincite | Cannot verify", "explanation": "1-2 sentences"},
-  "relevant_quote": "verbatim passage from what you read, or null",
-  "overall": "one sentence summary",
+  "source_url_read": "URL of the specific document page where you found and read the quote, or null",
+  "comparison_basis": "original_source | secondary_source | footnote_only",
+  "comparison_source_description": "e.g. 'Court opinion at CourtListener, p.436' or 'Could not locate specific document'",
+  "relevant_quote": "Verbatim passage (≥10 words) from the document. This is the primary evidence. Null only if not found.",
+  "proposition_support": {
+    "verdict": "Supports | Does not support | Questionable | Cannot verify",
+    "explanation": "Cite your quote and explain how it supports or contradicts the proposition. If Cannot verify, say exactly what you searched and why you could not locate the text."
+  },
+  "parenthetical_accuracy": {"verdict": "Accurate | Inaccurate | No parenthetical | Cannot verify", "explanation": ""},
+  "pincite_accuracy": {"verdict": "Accurate | Inaccurate | No pincite | Cannot verify", "explanation": ""},
+  "overall": "One sentence: what you found and what it means for this citation.",
   "confidence": "High | Medium | Low"
-}
-RULE: comparison_basis may only be "original_source" or "secondary_source" when source_url_read is a non-null URL. No URL = footnote_only = Cannot verify.`;
+}`;
 
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
     tools: [{ google_search: {} }],
-    generationConfig: { temperature: 0.1, maxOutputTokens: 1500 },
+    generationConfig: { temperature: 0.1, maxOutputTokens: 2000 },
   };
 
   const resp = await fetch(
@@ -1090,6 +1107,23 @@ RULE: comparison_basis may only be "original_source" or "secondary_source" when 
     result.proposition_support.explanation =
       '[Verdict downgraded: "Supports" requires reading the actual source] ' +
       (result.proposition_support.explanation || '');
+  }
+
+  // Rule 3: "Supports" or "Does not support" requires a real quote (≥5 words).
+  // Catches cases where Gemini returns a verdict but no actual passage.
+  {
+    const v = result.proposition_support?.verdict;
+    if (v === 'Supports' || v === 'Does not support') {
+      const q = (result.relevant_quote || '').trim();
+      const wordCount = q ? q.split(/\s+/).filter(Boolean).length : 0;
+      if (wordCount < 5) {
+        if (!result.proposition_support) result.proposition_support = {};
+        result.proposition_support.verdict = 'Cannot verify';
+        result.proposition_support.explanation =
+          '[Verdict downgraded: a verbatim quote from the source is required to confirm or deny support] ' +
+          (result.proposition_support.explanation || '');
+      }
+    }
   }
 
   // Always normalise source_url_read to the validated URL (or null)
@@ -1439,6 +1473,15 @@ function makeAuthCard(a, idx, ri) {
         <div style="flex:1"><span class="basis-label">Compared against: ${basisLabel}.</span>${basisDesc ? ' ' + esc(basisDesc) : ''}</div>
       </div>
 
+      ${llm.relevant_quote
+        ? `<div class="quote-box mt8">
+             <div class="quote-label">Quoted passage (primary evidence)</div>
+             <blockquote>${esc(llm.relevant_quote)}</blockquote>
+           </div>`
+        : (a.source_snippet
+            ? `<div class="source-snippet mt8">${esc(a.source_snippet)}</div>`
+            : '')}
+
       <div class="check-row">
         <span class="check-label">Supports proposition?</span>
         <div class="check-content">
@@ -1471,14 +1514,6 @@ function makeAuthCard(a, idx, ri) {
         <div class="section-title">Source read by Gemini</div>
         ${primaryLinkHtml}
         ${(basis === 'footnote_only' && a.source_note) ? `<span class="source-note">${esc(a.source_note)}</span>` : ''}
-        ${llm.relevant_quote
-          ? `<div class="quote-box mt8">
-               <div class="quote-label">Relevant passage</div>
-               <blockquote>${esc(llm.relevant_quote)}</blockquote>
-             </div>`
-          : (a.source_snippet
-              ? `<div class="source-snippet mt8">${esc(a.source_snippet)}</div>`
-              : '')}
         ${otherHtml}
       </div>
 
