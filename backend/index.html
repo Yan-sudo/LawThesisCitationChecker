@@ -3,264 +3,713 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Law Citation Accuracy Checker</title>
+<title>LexCheck — Law Citation Accuracy Checker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <style>
+/* ── Reset & tokens ─────────────────────────────── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:"Segoe UI",system-ui,sans-serif;font-size:14px;color:#1f1f1f;background:#f3f4f6;min-height:100vh}
+:root{
+  --brand:       #1a3f6f;
+  --brand-mid:   #1e5097;
+  --brand-light: #e8f0fb;
+  --accent:      #2563eb;
+  --green:       #16a34a; --green-bg:#dcfce7; --green-border:#86efac;
+  --red:         #dc2626; --red-bg:#fee2e2;   --red-border:#fca5a5;
+  --amber:       #d97706; --amber-bg:#fef3c7; --amber-border:#fde68a;
+  --slate:       #64748b; --slate-bg:#f1f5f9; --slate-border:#cbd5e1;
+  --surface:     #ffffff;
+  --page:        #f0f2f6;
+  --border:      #e2e8f0;
+  --text:        #0f172a;
+  --text-2:      #475569;
+  --text-3:      #94a3b8;
+  --radius:      10px;
+  --shadow-sm:   0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.04);
+  --shadow:      0 4px 12px rgba(0,0,0,.08),0 1px 3px rgba(0,0,0,.05);
+  --shadow-lg:   0 10px 28px rgba(0,0,0,.10),0 2px 8px rgba(0,0,0,.06);
+  --transition:  .18s ease;
+}
+html{scroll-behavior:smooth}
+body{
+  font-family:'Inter',system-ui,sans-serif;
+  font-size:14px;color:var(--text);
+  background:var(--page);
+  min-height:100vh;
+  display:flex;flex-direction:column;
+}
 
-/* Header */
-header{background:#0f4c81;color:#fff;padding:16px 28px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 6px rgba(0,0,0,.3)}
-header h1{font-size:19px;font-weight:600}
-header p{font-size:12px;opacity:.75;margin-top:2px}
+/* ── Header ───────────────────────────────────────── */
+header{
+  background:linear-gradient(135deg,var(--brand) 0%,var(--brand-mid) 100%);
+  color:#fff;padding:0 28px;
+  box-shadow:0 2px 10px rgba(0,0,0,.25);
+  position:sticky;top:0;z-index:100;
+}
+.header-inner{
+  max-width:900px;margin:0 auto;
+  display:flex;align-items:center;gap:14px;height:60px;
+}
+.logo-mark{
+  width:36px;height:36px;background:rgba(255,255,255,.15);
+  border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.header-text h1{font-size:17px;font-weight:700;letter-spacing:-.3px}
+.header-text p{font-size:11.5px;opacity:.65;margin-top:1px}
+.header-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.header-tag{
+  background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);
+  color:rgba(255,255,255,.85);border-radius:20px;
+  padding:3px 11px;font-size:11px;font-weight:500;
+}
 
-/* Main layout */
-main{max-width:780px;margin:36px auto;padding:0 18px 60px}
+/* ── Main ────────────────────────────────────────── */
+main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
 
-/* Card base */
-.card{background:#fff;border:1px solid #e2e4e8;border-radius:10px;padding:22px 24px;margin-bottom:18px}
-.card h2{font-size:15px;font-weight:600;margin-bottom:14px;color:#0f4c81}
+/* ── Cards ───────────────────────────────────────── */
+.panel{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:24px 26px;margin-bottom:18px;
+  box-shadow:var(--shadow-sm);
+}
+.panel-title{
+  font-size:13px;font-weight:700;color:var(--brand);
+  text-transform:uppercase;letter-spacing:.7px;margin-bottom:16px;
+  display:flex;align-items:center;gap:8px;
+}
+.step-num{
+  background:var(--accent);color:#fff;border-radius:50%;
+  width:20px;height:20px;display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:700;flex-shrink:0;
+}
 
-/* API key row */
-.key-row{display:flex;gap:10px;align-items:center}
-.key-row input{flex:1;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:monospace;color:#333}
-.key-row input:focus{outline:none;border-color:#0f4c81;box-shadow:0 0 0 2px rgba(15,76,129,.15)}
-.key-note{font-size:12px;color:#888;margin-top:6px}
-a.key-link{color:#0f4c81}
+/* ── API key input ───────────────────────────────── */
+.key-wrap{position:relative}
+.key-wrap input{
+  width:100%;padding:10px 44px 10px 13px;
+  border:1.5px solid var(--border);border-radius:7px;
+  font-size:13px;font-family:monospace;color:var(--text);
+  transition:border-color var(--transition),box-shadow var(--transition);
+  background:var(--page);
+}
+.key-wrap input:focus{
+  outline:none;border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(37,99,235,.12);background:#fff;
+}
+.key-vis-btn{
+  position:absolute;right:10px;top:50%;transform:translateY(-50%);
+  background:none;border:none;cursor:pointer;color:var(--text-3);padding:4px;
+  display:flex;align-items:center;
+}
+.key-vis-btn:hover{color:var(--text-2)}
+.key-actions{display:flex;align-items:center;gap:10px;margin-top:8px}
+.remember-label{font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:5px;cursor:pointer}
+.remember-label input{accent-color:var(--accent);cursor:pointer}
+.key-note{font-size:12px;color:var(--text-3);margin-top:6px}
+.key-note a{color:var(--accent);text-decoration:none}
+.key-note a:hover{text-decoration:underline}
 
-/* Upload zone */
-.drop-zone{border:2px dashed #c3cfe0;border-radius:8px;padding:44px 24px;text-align:center;cursor:pointer;transition:all .2s}
-.drop-zone.over,.drop-zone:hover{border-color:#0f4c81;background:#f0f5fb}
-.drop-zone h3{font-size:16px;color:#333;margin-bottom:6px}
-.drop-zone p{font-size:13px;color:#777}
+/* ── Drop zone ───────────────────────────────────── */
+.drop-zone{
+  border:2px dashed var(--slate-border);border-radius:9px;
+  padding:40px 24px;text-align:center;cursor:pointer;
+  transition:all var(--transition);position:relative;
+}
+.drop-zone:hover,.drop-zone.over{
+  border-color:var(--accent);background:var(--brand-light);
+}
+.drop-zone .dz-icon{margin-bottom:12px;opacity:.45;transition:opacity var(--transition)}
+.drop-zone:hover .dz-icon,.drop-zone.over .dz-icon{opacity:.7}
+.dz-title{font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px}
+.dz-sub{font-size:13px;color:var(--text-3)}
 #file-input{display:none}
 
-/* Buttons */
-.btn{padding:9px 22px;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-family:inherit;font-weight:500}
-.btn-primary{background:#0f4c81;color:#fff}
-.btn-primary:hover{background:#0a3660}
-.btn-primary:disabled{opacity:.5;cursor:not-allowed}
-.btn-sm{padding:5px 12px;font-size:12px}
+.file-selected{
+  display:flex;align-items:center;gap:12px;
+  background:var(--brand-light);border:1.5px solid #bfdbfe;
+  border-radius:8px;padding:12px 16px;margin-top:12px;
+}
+.file-icon{flex-shrink:0;color:var(--accent)}
+.file-info{flex:1;min-width:0}
+.file-name{font-size:13px;font-weight:600;color:var(--brand);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-size{font-size:11px;color:var(--text-3);margin-top:2px}
+.file-clear{background:none;border:none;cursor:pointer;color:var(--text-3);padding:2px;display:flex}
+.file-clear:hover{color:var(--red)}
 
-/* Progress */
-.progress{text-align:center;padding:50px 20px}
-.spinner{width:44px;height:44px;border:4px solid #dde3ec;border-top-color:#0f4c81;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px}
+/* ── Buttons ─────────────────────────────────────── */
+.btn{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:9px 20px;border:none;border-radius:7px;
+  font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;
+  transition:background var(--transition),box-shadow var(--transition),transform .1s;
+  text-decoration:none;
+}
+.btn:active{transform:translateY(1px)}
+.btn-primary{background:var(--accent);color:#fff;box-shadow:0 1px 4px rgba(37,99,235,.3)}
+.btn-primary:hover{background:#1d4ed8;box-shadow:0 2px 8px rgba(37,99,235,.4)}
+.btn-primary:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
+.btn-ghost{background:transparent;color:var(--text-2);border:1.5px solid var(--border)}
+.btn-ghost:hover{background:var(--page);border-color:var(--slate-border)}
+.btn-danger-ghost{background:transparent;color:var(--red);border:1.5px solid var(--red-border)}
+.btn-danger-ghost:hover{background:var(--red-bg)}
+.btn-sm{padding:5px 13px;font-size:12px;border-radius:6px}
+.setup-footer{display:flex;justify-content:flex-end;margin-top:4px}
+
+/* ── Progress screen ─────────────────────────────── */
+.progress-wrap{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:48px 40px;text-align:center;
+  box-shadow:var(--shadow);
+}
+.spinner{
+  width:48px;height:48px;
+  border:4px solid var(--border);border-top-color:var(--accent);
+  border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 20px;
+}
 @keyframes spin{to{transform:rotate(360deg)}}
-.progress p{color:#555}
+.prog-title{font-size:16px;font-weight:600;color:var(--text);margin-bottom:4px}
+.prog-sub{font-size:13px;color:var(--text-2);margin-bottom:24px}
+.prog-bar-wrap{
+  background:var(--page);border-radius:99px;height:7px;
+  overflow:hidden;max-width:360px;margin:0 auto 10px;
+}
+.prog-bar{
+  height:100%;background:linear-gradient(90deg,var(--accent),#60a5fa);
+  border-radius:99px;transition:width .4s ease;width:0%;
+}
+.prog-counter{font-size:12px;color:var(--text-3)}
+.prog-phases{display:flex;justify-content:center;gap:28px;margin-top:20px;flex-wrap:wrap}
+.prog-phase{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-3)}
+.prog-phase.active{color:var(--accent);font-weight:600}
+.prog-phase.done{color:var(--green)}
+.phase-dot{width:8px;height:8px;border-radius:50%;background:var(--border)}
+.prog-phase.active .phase-dot{background:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.2);animation:pulse 1s ease infinite}
+.prog-phase.done .phase-dot{background:var(--green)}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 3px rgba(37,99,235,.2)} 50%{box-shadow:0 0 0 5px rgba(37,99,235,.1)}}
 
-/* Summary bar */
-.summary{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:20px}
-.stat{text-align:center}
-.stat .num{font-size:26px;font-weight:700;color:#0f4c81;display:block}
-.stat .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888}
+/* ── Results header ──────────────────────────────── */
+.results-topbar{
+  display:flex;align-items:center;gap:14px;margin-bottom:22px;flex-wrap:wrap;
+}
+.results-title{font-size:18px;font-weight:700;color:var(--brand);flex:1;min-width:0}
+.results-file{font-size:12px;color:var(--text-3);font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ai-badge{
+  display:flex;align-items:center;gap:5px;font-size:12px;font-weight:500;
+  color:var(--accent);background:var(--brand-light);
+  border-radius:20px;padding:4px 12px;border:1px solid #bfdbfe;
+  white-space:nowrap;flex-shrink:0;
+}
+.ai-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 1.5s ease infinite}
 
-/* Citation card */
-.cit-card{background:#fff;border:1px solid #e2e4e8;border-radius:10px;margin-bottom:12px;overflow:hidden}
-.cit-card.has-error{border-color:#f1a7ab}
-.cit-card.all-good{border-left:4px solid #22c55e}
-.cit-card.has-issues{border-left:4px solid #f59e0b}
-.cit-card.unverified{border-left:4px solid #94a3b8}
+/* ── Summary bar ─────────────────────────────────── */
+.summary-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px;
+  margin-bottom:20px;
+}
+.stat-card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:9px;padding:14px 16px;box-shadow:var(--shadow-sm);
+  display:flex;flex-direction:column;align-items:center;text-align:center;
+}
+.stat-num{font-size:28px;font-weight:700;line-height:1;margin-bottom:4px}
+.stat-lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-3);font-weight:500}
+.stat-card.s-total .stat-num{color:var(--brand)}
+.stat-card.s-ok .stat-num{color:var(--green)}
+.stat-card.s-bad .stat-num{color:var(--red)}
+.stat-card.s-warn .stat-num{color:var(--amber)}
+.stat-card.s-grey .stat-num{color:var(--slate)}
+.stat-card.s-pending .stat-num{color:var(--amber);animation:pulse 1.4s ease infinite}
 
-.cit-header{display:flex;align-items:flex-start;gap:10px;padding:13px 16px;cursor:pointer;user-select:none}
-.cit-header:hover{background:#fafafa}
-.fn-badge{background:#0f4c81;color:#fff;border-radius:4px;padding:2px 9px;font-size:12px;font-weight:700;flex-shrink:0;margin-top:1px}
+/* ── Filter & toolbar ────────────────────────────── */
+.toolbar{
+  display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;
+}
+.filter-btn{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:5px 13px;border-radius:20px;border:1.5px solid var(--border);
+  background:var(--surface);font-size:12px;font-weight:500;cursor:pointer;
+  color:var(--text-2);transition:all var(--transition);font-family:inherit;
+}
+.filter-btn:hover{border-color:var(--accent);color:var(--accent)}
+.filter-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.filter-count{
+  background:rgba(255,255,255,.25);border-radius:10px;
+  padding:0 6px;font-size:10px;font-weight:700;min-width:18px;text-align:center;
+}
+.filter-btn:not(.active) .filter-count{background:var(--page);color:var(--text-3)}
+.toolbar-right{margin-left:auto;display:flex;gap:8px}
+
+/* ── Citation card ───────────────────────────────── */
+.cit-card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);margin-bottom:10px;
+  box-shadow:var(--shadow-sm);overflow:hidden;
+  animation:fadeUp .22s ease both;
+  transition:box-shadow var(--transition);
+}
+.cit-card:hover{box-shadow:var(--shadow)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)}}
+.cit-card.all-good{border-left:4px solid var(--green)}
+.cit-card.has-issues{border-left:4px solid var(--red)}
+.cit-card.has-warn{border-left:4px solid var(--amber)}
+.cit-card.unverified{border-left:4px solid var(--slate-border)}
+
+.cit-header{
+  display:flex;align-items:flex-start;gap:12px;
+  padding:14px 18px;cursor:pointer;user-select:none;
+  transition:background var(--transition);
+}
+.cit-header:hover{background:#fafbff}
+.fn-badge{
+  background:var(--brand);color:#fff;border-radius:5px;
+  padding:2px 9px;font-size:12px;font-weight:700;
+  flex-shrink:0;margin-top:1px;letter-spacing:.3px;
+}
 .cit-preview{flex:1;min-width:0}
-.cit-fn-text{font-size:13px;color:#444;line-height:1.5;word-break:break-word;margin-bottom:2px}
-.cit-sentence{font-size:12px;color:#888;font-style:italic;line-height:1.5;word-break:break-word}
-.cit-verdicts{display:flex;gap:5px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;align-items:flex-start}
-
-/* Verdict pills */
-.vp{border-radius:12px;padding:3px 10px;font-size:11px;font-weight:600;white-space:nowrap}
-.vp-supports{background:#dcfce7;color:#166534}
-.vp-not-support{background:#fee2e2;color:#991b1b}
-.vp-questionable{background:#fef3c7;color:#92400e}
-.vp-cannot{background:#f1f5f9;color:#64748b}
-.vp-accurate{background:#dcfce7;color:#166534}
-.vp-inaccurate{background:#fee2e2;color:#991b1b}
-.vp-no-item{background:#f1f5f9;color:#64748b}
-.vp-source{background:#dbeafe;color:#1d4ed8}
-.vp-no-source{background:#fef3c7;color:#92400e}
-.vp-error{background:#fee2e2;color:#991b1b}
-
-/* Comparison basis banner */
-.basis-banner{display:flex;align-items:flex-start;gap:8px;border-radius:6px;padding:8px 12px;font-size:12px;line-height:1.5;margin-bottom:12px}
-.basis-banner.basis-original{background:#dcfce7;border:1px solid #bbf7d0;color:#14532d}
-.basis-banner.basis-secondary{background:#fef3c7;border:1px solid #fde68a;color:#713f12}
-.basis-banner.basis-footnote{background:#fee2e2;border:1px solid #fecaca;color:#7f1d1d}
-.basis-icon{flex-shrink:0;font-size:15px;margin-top:1px}
-.basis-label{font-weight:700;margin-right:4px}
-
-/* Card body */
-.cit-body{border-top:1px solid #f0f0f0;padding:16px 18px;display:flex;flex-direction:column;gap:16px}
-
-.section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#94a3b8;margin-bottom:6px}
-
-/* Proposition box */
-.prop-box{background:#f8fafc;border-radius:6px;padding:10px 13px;font-size:13px;color:#334155;line-height:1.6;border-left:3px solid #cbd5e1;font-style:italic}
-
-/* LLM check rows */
-.check-row{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #f3f4f6}
-.check-row:last-child{border-bottom:none}
-.check-label{font-size:12px;font-weight:600;color:#64748b;width:170px;flex-shrink:0;padding-top:1px}
-.check-content{flex:1;min-width:0}
-.check-verdict{display:inline-block;margin-bottom:4px}
-.check-expl{font-size:12px;color:#555;line-height:1.5}
-
-/* Source */
-.source-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.source-link{display:inline-flex;align-items:center;gap:5px;background:#0f4c81;color:#fff;text-decoration:none;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500}
-.source-link:hover{background:#0a3660}
-.source-note{font-size:12px;color:#888;font-style:italic;margin-top:4px}
-.source-snippet{background:#f8f9fa;border-left:3px solid #cbd5e1;padding:10px 12px;font-size:12px;line-height:1.7;color:#334155;border-radius:0 5px 5px 0;margin-top:8px;white-space:pre-wrap}
-
-/* Relevant quote */
-.quote-box{background:#fffbee;border:1px solid #fcd34d;border-radius:7px;padding:12px 15px;margin-top:8px}
-.quote-box blockquote{font-size:13px;line-height:1.8;color:#334155;font-style:italic;border-left:3px solid #f59e0b;padding-left:12px;margin:0}
-.quote-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#b45309;margin-bottom:7px}
-
-/* Overall */
-.overall-box{background:#f0f7ff;border-radius:6px;padding:10px 13px;font-size:13px;color:#1e3a5f;line-height:1.5}
-
-/* Confidence */
-.conf{font-size:11px;color:#94a3b8;margin-top:4px}
-
-/* Authority tree */
-.auth-tree{display:flex;flex-direction:column;gap:7px;margin-top:6px}
-.auth-card{border-radius:6px;background:#fafbfc;border:1px solid #eaecef;overflow:hidden}
-.auth-header{display:flex;align-items:flex-start;gap:9px;padding:10px 13px;cursor:pointer;user-select:none}
-.auth-header:hover{background:#f3f4f6}
-.auth-num{background:#64748b;color:#fff;border-radius:3px;padding:1px 7px;font-size:11px;font-weight:700;flex-shrink:0;margin-top:2px}
-.auth-text{flex:1;font-size:12px;color:#374151;line-height:1.5;word-break:break-word}
-.auth-body{padding:12px 14px;border-top:1px solid #f0f0f0;display:flex;flex-direction:column;gap:0}
+.cit-fn-text{font-size:13px;color:var(--text);line-height:1.55;word-break:break-word;margin-bottom:3px}
+.cit-sentence{
+  font-size:12px;color:var(--text-2);font-style:italic;
+  line-height:1.5;word-break:break-word;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.cit-sentence.expanded{-webkit-line-clamp:unset}
+.cit-verdicts{display:flex;gap:5px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;align-items:flex-start;max-width:240px}
 
 /* Chevron */
-.chev{flex-shrink:0;width:18px;height:18px;color:#bbb;transition:transform .2s;margin-top:2px}
-.cit-card.open .chev{transform:rotate(180deg)}
+.chev{flex-shrink:0;color:var(--text-3);transition:transform .2s;margin-top:3px}
+.cit-card.open .cit-header>.chev{transform:rotate(180deg)}
+.auth-card.open .auth-header>.chev{transform:rotate(180deg)}
 
-/* Error alert */
-.alert{background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:16px 20px;color:#991b1b;font-size:14px;margin-bottom:18px}
+/* ── Verdict pills ───────────────────────────────── */
+.vp{border-radius:20px;padding:3px 10px;font-size:11px;font-weight:600;white-space:nowrap;letter-spacing:.1px}
+.vp-supports{background:var(--green-bg);color:#14532d}
+.vp-not-support{background:var(--red-bg);color:#7f1d1d}
+.vp-questionable{background:var(--amber-bg);color:#78350f}
+.vp-cannot{background:var(--slate-bg);color:var(--slate)}
+.vp-accurate{background:var(--green-bg);color:#14532d}
+.vp-inaccurate{background:var(--red-bg);color:#7f1d1d}
+.vp-no-item{background:var(--slate-bg);color:var(--slate)}
+.vp-source{background:#dbeafe;color:#1d4ed8}
+.vp-no-source{background:var(--amber-bg);color:#78350f}
+.vp-error{background:var(--red-bg);color:#7f1d1d}
 
-/* Upload button row */
-.upload-actions{display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap}
+/* ── Card body ───────────────────────────────────── */
+.cit-body{border-top:1px solid var(--border);padding:18px 20px;display:flex;flex-direction:column;gap:14px}
+
+.section-title{
+  font-size:10.5px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.8px;color:var(--text-3);margin-bottom:7px;
+}
+
+.prop-box{
+  background:var(--brand-light);border-radius:7px;
+  padding:11px 14px;font-size:13px;color:#1e3a5f;line-height:1.65;
+  border-left:3px solid #93c5fd;font-style:italic;
+}
+
+/* ── LLM check rows ──────────────────────────────── */
+.check-row{
+  display:flex;gap:10px;align-items:flex-start;
+  padding:9px 0;border-bottom:1px solid var(--page);
+}
+.check-row:last-child{border-bottom:none}
+.check-label{
+  font-size:12px;font-weight:600;color:var(--text-2);
+  width:160px;flex-shrink:0;padding-top:2px;
+}
+.check-content{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.check-expl{font-size:12px;color:var(--text-2);line-height:1.55}
+
+/* ── Source section ──────────────────────────────── */
+.source-link{
+  display:inline-flex;align-items:center;gap:6px;
+  background:var(--brand);color:#fff;text-decoration:none;
+  padding:7px 15px;border-radius:7px;font-size:12.5px;font-weight:500;
+  transition:background var(--transition);
+}
+.source-link:hover{background:var(--brand-mid)}
+.source-link.secondary{background:var(--page);color:var(--text-2);border:1.5px solid var(--border)}
+.source-link.secondary:hover{border-color:var(--accent);color:var(--accent);background:#fff}
+.source-note{font-size:12px;color:var(--text-3);font-style:italic;margin-top:4px;display:block}
+.source-snippet{
+  background:var(--page);border-left:3px solid var(--slate-border);
+  padding:10px 13px;font-size:12px;line-height:1.7;color:var(--text-2);
+  border-radius:0 6px 6px 0;white-space:pre-wrap;
+}
+.sources-list{display:flex;flex-direction:column;gap:5px;margin-top:6px}
+
+/* ── Relevant quote ──────────────────────────────── */
+.quote-box{
+  background:#fffbeb;border:1px solid #fde68a;
+  border-radius:8px;padding:13px 16px;
+}
+.quote-box blockquote{
+  font-size:13px;line-height:1.8;color:var(--text);font-style:italic;
+  border-left:3px solid var(--amber);padding-left:12px;margin:0;
+}
+.quote-label{
+  font-size:10.5px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.5px;color:var(--amber);margin-bottom:8px;
+}
+
+/* ── Overall / confidence ────────────────────────── */
+.overall-box{
+  background:var(--brand-light);border-radius:7px;
+  padding:10px 14px;font-size:13px;color:#1e3a5f;line-height:1.5;
+}
+.conf{font-size:11px;color:var(--text-3);margin-top:5px}
+
+/* ── Basis banner ────────────────────────────────── */
+.basis-banner{
+  display:flex;align-items:flex-start;gap:10px;
+  border-radius:7px;padding:9px 13px;font-size:12px;
+  line-height:1.5;margin-bottom:4px;
+}
+.basis-banner.basis-original{background:var(--green-bg);border:1px solid var(--green-border);color:#14532d}
+.basis-banner.basis-secondary{background:var(--amber-bg);border:1px solid var(--amber-border);color:#78350f}
+.basis-banner.basis-footnote{background:var(--red-bg);border:1px solid var(--red-border);color:#7f1d1d}
+.basis-icon{flex-shrink:0;font-size:14px;margin-top:1px}
+.basis-label{font-weight:700;margin-right:4px}
+
+/* ── Authority tree ──────────────────────────────── */
+.auth-tree{display:flex;flex-direction:column;gap:7px;margin-top:6px}
+.auth-card{
+  border-radius:7px;background:#fafbfc;
+  border:1px solid var(--border);overflow:hidden;
+  transition:box-shadow var(--transition);
+}
+.auth-card:hover{box-shadow:var(--shadow-sm)}
+.auth-header{
+  display:flex;align-items:flex-start;gap:10px;
+  padding:10px 14px;cursor:pointer;user-select:none;
+  transition:background var(--transition);
+}
+.auth-header:hover{background:var(--page)}
+.auth-num{
+  background:var(--slate);color:#fff;border-radius:4px;
+  padding:1px 7px;font-size:11px;font-weight:700;flex-shrink:0;margin-top:2px;
+}
+.auth-text{flex:1;font-size:12.5px;color:var(--text);line-height:1.5;word-break:break-word}
+.auth-body{
+  padding:13px 15px;border-top:1px solid var(--border);
+  display:flex;flex-direction:column;gap:0;
+}
+
+/* ── Checking shimmer ────────────────────────────── */
+@keyframes shimmer{0%{background-position:-200% 0} 100%{background-position:200% 0}}
+.checking-pill{
+  background:linear-gradient(90deg,var(--slate-bg) 25%,#e2e8f0 50%,var(--slate-bg) 75%);
+  background-size:200% 100%;animation:shimmer 1.4s ease infinite;
+  border-radius:20px;padding:3px 14px;font-size:11px;color:transparent;width:80px;
+}
+
+/* ── Error alert ─────────────────────────────────── */
+.alert{
+  background:var(--red-bg);border:1px solid var(--red-border);
+  border-radius:8px;padding:14px 18px;color:#7f1d1d;
+  font-size:13px;margin-bottom:16px;display:flex;gap:10px;align-items:flex-start;
+}
+.alert svg{flex-shrink:0;margin-top:1px}
+
+/* ── Copy btn ────────────────────────────────────── */
+.copy-btn{
+  background:none;border:none;cursor:pointer;color:var(--text-3);
+  padding:3px;border-radius:4px;display:flex;align-items:center;
+  transition:color var(--transition),background var(--transition);flex-shrink:0;
+}
+.copy-btn:hover{color:var(--accent);background:var(--brand-light)}
+
+/* ── Expand label ────────────────────────────────── */
+.sentence-toggle{
+  font-size:11px;color:var(--accent);cursor:pointer;
+  background:none;border:none;font-family:inherit;padding:0;margin-top:2px;
+}
+
+/* ── Footer ──────────────────────────────────────── */
+footer{
+  border-top:1px solid var(--border);background:var(--surface);
+  padding:16px 28px;text-align:center;
+  font-size:11.5px;color:var(--text-3);
+}
+footer a{color:var(--accent);text-decoration:none}
+footer a:hover{text-decoration:underline}
+
+/* ── Utilities ───────────────────────────────────── */
+[hidden]{display:none!important}
+.mt4{margin-top:4px} .mt8{margin-top:8px} .mt12{margin-top:12px}
 </style>
 </head>
 <body>
 
 <header>
-  <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-    <rect width="26" height="26" rx="5" fill="rgba(255,255,255,.2)"/>
-    <path d="M5 6h16M5 10h16M5 14h10M5 18h7" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
-  </svg>
-  <div><h1>Law Citation Accuracy Checker</h1>
-  <p>Checks whether each cited authority actually supports the proposition it is cited for</p></div>
+  <div class="header-inner">
+    <div class="logo-mark">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <path d="M3 6h18M3 10h18M3 14h12M3 18h8" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+        <circle cx="20" cy="17" r="3" fill="#60a5fa"/>
+        <path d="M20 15.5v1.7l.8.8" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div class="header-text">
+      <h1>LexCheck</h1>
+      <p>Law Citation Accuracy Checker</p>
+    </div>
+    <div class="header-right">
+      <span class="header-tag">Beta</span>
+    </div>
+  </div>
 </header>
 
 <main id="app">
 
-  <!-- ── Setup screen ── -->
+  <!-- ── Setup screen ──────────────────────────────── -->
   <div id="screen-setup">
-    <!-- API Key -->
-    <div class="card">
-      <h2>Gemini API Key</h2>
-      <div class="key-row">
-        <input type="password" id="api-key" placeholder="AIza…" autocomplete="off"/>
-        <button class="btn btn-sm btn-primary" onclick="toggleKeyVis()">Show</button>
+
+    <div class="panel">
+      <div class="panel-title"><span class="step-num">1</span> Gemini API Key</div>
+      <div class="key-wrap">
+        <input type="password" id="api-key" placeholder="AIza…" autocomplete="off" spellcheck="false"/>
+        <button class="key-vis-btn" onclick="toggleKeyVis()" title="Show / hide key">
+          <svg id="eye-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+      <div class="key-actions">
+        <label class="remember-label">
+          <input type="checkbox" id="remember-key" onchange="onRememberChange()"/> Remember key on this device
+        </label>
       </div>
       <p class="key-note">
-        Get a free key at <a class="key-link" href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a>.
-        Your key is sent only to Google's Gemini API and never stored anywhere.
+        Get a free key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">Google AI Studio</a>.
+        Your key goes directly to Google's API — it is never sent to this server.
       </p>
     </div>
 
-    <!-- Upload -->
-    <div class="card">
-      <h2>Upload Document</h2>
+    <div class="panel">
+      <div class="panel-title"><span class="step-num">2</span> Upload Document</div>
       <div class="drop-zone" id="drop-zone">
-        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" style="opacity:.4;margin-bottom:12px">
-          <path d="M24 32V16M24 16l-7 7M24 16l7 7" stroke="#0f4c81" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M8 34v3a3 3 0 003 3h26a3 3 0 003-3v-3" stroke="#0f4c81" stroke-width="2.5" stroke-linecap="round"/>
-        </svg>
-        <h3>Drop your .docx file here</h3>
-        <p>or click to browse</p>
+        <div class="dz-icon">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <path d="M24 32V16M24 16l-7 7M24 16l7 7" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M8 34v3a3 3 0 003 3h26a3 3 0 003-3v-3" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="dz-title">Drop your .docx here</div>
+        <div class="dz-sub">or click to browse</div>
         <input type="file" id="file-input" accept=".docx"/>
       </div>
-      <div class="upload-actions">
-        <button class="btn btn-primary" id="browse-btn" onclick="document.getElementById('file-input').click()">Choose file</button>
-        <span id="chosen-file" style="font-size:13px;color:#555"></span>
-      </div>
-      <p style="font-size:12px;color:#aaa;margin-top:10px">
-        Your document stays on your machine. Only footnote text and source snippets are sent to Gemini.
+      <div id="file-preview" hidden></div>
+      <p style="font-size:11.5px;color:var(--text-3);margin-top:10px">
+        Your document is processed locally. Only footnote text and fetched source snippets are sent to Gemini for accuracy checking.
       </p>
     </div>
 
-    <div style="text-align:right">
-      <button class="btn btn-primary" id="run-btn" onclick="runCheck()" disabled>Check citations</button>
+    <div class="setup-footer">
+      <button class="btn btn-primary" id="run-btn" onclick="runCheck()" disabled>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Check Citations
+      </button>
     </div>
   </div>
 
-  <!-- ── Progress ── -->
-  <div id="screen-progress" style="display:none" class="progress">
-    <div class="spinner"></div>
-    <p id="prog-msg">Uploading document…</p>
+  <!-- ── Progress screen ───────────────────────────── -->
+  <div id="screen-progress" hidden>
+    <div class="progress-wrap">
+      <div class="spinner"></div>
+      <div class="prog-title" id="prog-title">Uploading document…</div>
+      <div class="prog-sub" id="prog-sub">Extracting footnotes and fetching sources</div>
+      <div class="prog-bar-wrap">
+        <div class="prog-bar" id="prog-bar"></div>
+      </div>
+      <div class="prog-counter" id="prog-counter"></div>
+      <div class="prog-phases">
+        <div class="prog-phase active" id="phase-upload">
+          <div class="phase-dot"></div>Upload &amp; extract
+        </div>
+        <div class="prog-phase" id="phase-fetch">
+          <div class="phase-dot"></div>Fetch sources
+        </div>
+        <div class="prog-phase" id="phase-ai">
+          <div class="phase-dot"></div>AI accuracy check
+        </div>
+      </div>
+    </div>
   </div>
 
-  <!-- ── Results ── -->
-  <div id="screen-results" style="display:none">
-    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap">
-      <h2 style="font-size:18px;color:#0f4c81" id="results-title"></h2>
-      <span id="prog-label" style="font-size:13px;color:#0f4c81;font-style:italic"></span>
-      <button class="btn btn-sm" style="background:#e5e7eb;margin-left:auto" onclick="reset()">← New document</button>
+  <!-- ── Results screen ────────────────────────────── -->
+  <div id="screen-results" hidden>
+    <div class="results-topbar">
+      <div class="results-title">
+        <div id="results-headline"></div>
+        <div class="results-file" id="results-file"></div>
+      </div>
+      <div class="ai-badge" id="ai-status" hidden>
+        <div class="ai-dot"></div> Checking with Gemini…
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="reset()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+        New document
+      </button>
     </div>
-    <div class="summary" id="summary"></div>
+
+    <div class="summary-grid" id="summary"></div>
     <div id="alert-box"></div>
+
+    <div class="toolbar">
+      <button class="filter-btn active" data-filter="all" onclick="setFilter(this,'all')">
+        All <span class="filter-count" id="fc-all">0</span>
+      </button>
+      <button class="filter-btn" data-filter="issues" onclick="setFilter(this,'issues')">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12" stroke="#fff" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16" r="1.2" fill="#fff"/></svg>
+        Issues <span class="filter-count" id="fc-issues">0</span>
+      </button>
+      <button class="filter-btn" data-filter="questionable" onclick="setFilter(this,'questionable')">
+        Questionable <span class="filter-count" id="fc-questionable">0</span>
+      </button>
+      <button class="filter-btn" data-filter="ok" onclick="setFilter(this,'ok')">
+        Supported <span class="filter-count" id="fc-ok">0</span>
+      </button>
+      <button class="filter-btn" data-filter="unverified" onclick="setFilter(this,'unverified')">
+        Unverified <span class="filter-count" id="fc-unverified">0</span>
+      </button>
+      <div class="toolbar-right">
+        <button class="btn btn-ghost btn-sm" onclick="toggleAll(true)">Expand all</button>
+        <button class="btn btn-ghost btn-sm" onclick="toggleAll(false)">Collapse all</button>
+        <button class="btn btn-ghost btn-sm" onclick="exportResults()" id="export-btn" hidden>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export
+        </button>
+      </div>
+    </div>
+
     <div id="cards"></div>
   </div>
 
 </main>
 
-<script>
-// ── State ──────────────────────────────────────────────────────────
-let chosenFile = null;
+<footer>
+  LexCheck — runs locally, no account needed &nbsp;·&nbsp;
+  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">Get a Gemini API key</a>
+  &nbsp;·&nbsp; Source text is sent to Google's Gemini API only
+</footer>
 
-// ── Key visibility toggle ──────────────────────────────────────────
+<script>
+// ── State ──────────────────────────────────────────
+let chosenFile = null;
+let lastResults = null;
+let currentFilter = 'all';
+let totalAuth = 0, doneAuth = 0;
+
+// ── Persist API key ────────────────────────────────
+(function initKey() {
+  const saved = localStorage.getItem('lexcheck-apikey');
+  if (saved) {
+    document.getElementById('api-key').value = saved;
+    document.getElementById('remember-key').checked = true;
+  }
+})();
+function onRememberChange() {
+  const checked = document.getElementById('remember-key').checked;
+  if (!checked) localStorage.removeItem('lexcheck-apikey');
+  else {
+    const k = document.getElementById('api-key').value.trim();
+    if (k) localStorage.setItem('lexcheck-apikey', k);
+  }
+}
+document.getElementById('api-key').addEventListener('input', () => {
+  updateRunBtn();
+  if (document.getElementById('remember-key').checked) {
+    const k = document.getElementById('api-key').value.trim();
+    if (k) localStorage.setItem('lexcheck-apikey', k);
+    else localStorage.removeItem('lexcheck-apikey');
+  }
+});
+
+// ── Key visibility ─────────────────────────────────
 function toggleKeyVis() {
   const inp = document.getElementById('api-key');
   inp.type = inp.type === 'password' ? 'text' : 'password';
+  document.getElementById('eye-icon').style.opacity = inp.type === 'text' ? '.4' : '1';
 }
 
-// ── File selection ─────────────────────────────────────────────────
-document.getElementById('file-input').addEventListener('change', e => {
-  setFile(e.target.files[0]);
-});
+// ── File selection ─────────────────────────────────
+document.getElementById('file-input').addEventListener('change', e => setFile(e.target.files[0]));
 const dz = document.getElementById('drop-zone');
 dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
 dz.addEventListener('dragleave', () => dz.classList.remove('over'));
 dz.addEventListener('drop', e => {
   e.preventDefault(); dz.classList.remove('over');
-  if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+  const f = e.dataTransfer.files[0];
+  if (f && f.name.endsWith('.docx')) setFile(f);
+  else showAlert('Please upload a .docx file.');
 });
 dz.addEventListener('click', () => document.getElementById('file-input').click());
 
 function setFile(f) {
   if (!f) return;
   chosenFile = f;
-  document.getElementById('chosen-file').textContent = f.name;
+  const preview = document.getElementById('file-preview');
+  preview.hidden = false;
+  preview.innerHTML = `
+    <div class="file-selected">
+      <div class="file-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="8" y1="13" x2="16" y2="13"/>
+          <line x1="8" y1="17" x2="12" y2="17"/>
+        </svg>
+      </div>
+      <div class="file-info">
+        <div class="file-name">${esc(f.name)}</div>
+        <div class="file-size">${(f.size/1024).toFixed(1)} KB</div>
+      </div>
+      <button class="file-clear" onclick="clearFile()" title="Remove file">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>`;
   updateRunBtn();
 }
-document.getElementById('api-key').addEventListener('input', updateRunBtn);
+function clearFile() {
+  chosenFile = null;
+  document.getElementById('file-input').value = '';
+  document.getElementById('file-preview').hidden = true;
+  updateRunBtn();
+}
 function updateRunBtn() {
   const key = document.getElementById('api-key').value.trim();
   document.getElementById('run-btn').disabled = !(chosenFile && key);
 }
 
-// ── Main run ───────────────────────────────────────────────────────
+// ── Progress helpers ───────────────────────────────
+function setPhase(name) {
+  ['upload','fetch','ai'].forEach(p => {
+    const el = document.getElementById(`phase-${p}`);
+    el.className = 'prog-phase' + (p === name ? ' active' : (
+      ['upload','fetch','ai'].indexOf(p) < ['upload','fetch','ai'].indexOf(name) ? ' done' : ''
+    ));
+  });
+}
+function setProgress(done, total, msg, sub) {
+  if (msg) document.getElementById('prog-title').textContent = msg;
+  if (sub !== undefined) document.getElementById('prog-sub').textContent = sub || '';
+  if (total > 0) {
+    document.getElementById('prog-bar').style.width = Math.round(done/total*100) + '%';
+    document.getElementById('prog-counter').textContent = `${done} of ${total}`;
+  } else {
+    document.getElementById('prog-bar').style.width = '0%';
+    document.getElementById('prog-counter').textContent = '';
+  }
+}
+
+// ── Main run ───────────────────────────────────────
 async function runCheck() {
   const key = document.getElementById('api-key').value.trim();
   if (!chosenFile || !key) return;
 
   show('screen-progress');
-  document.getElementById('prog-msg').textContent = 'Uploading document and fetching sources…';
+  setPhase('upload');
+  setProgress(0, 0, 'Uploading document…', 'Extracting footnotes and footnote positions');
 
-  // Step 1: upload to our server — get back structure + source text (no Gemini yet)
   const form = new FormData();
   form.append('file', chosenFile);
 
@@ -273,24 +722,32 @@ async function runCheck() {
     }
     data = await resp.json();
   } catch (e) {
-    showAlert(e.message);
     show('screen-results');
+    showAlert(e.message);
     return;
   }
 
-  // Step 2: render cards immediately (Gemini checks show as "checking…")
+  setPhase('fetch');
+  setProgress(1, 2, 'Sources fetched', 'Building authority list…');
+
+  lastResults = data;
   renderResults(data);
 
-  // Step 3: call Gemini directly from the browser for each authority in parallel
   const allAuthorities = [];
-  (data.results || []).forEach((r, ri) => {
-    (r.authorities || []).forEach((a, ai) => {
-      allAuthorities.push({ r, a, ri, ai });
-    });
-  });
+  (data.results || []).forEach((r, ri) =>
+    (r.authorities || []).forEach((a, ai) => allAuthorities.push({ r, a, ri, ai }))
+  );
+  totalAuth = allAuthorities.length;
+  doneAuth = 0;
 
-  document.getElementById('prog-label').textContent =
-    `Checking ${allAuthorities.length} authorit${allAuthorities.length === 1 ? 'y' : 'ies'} with Gemini…`;
+  if (totalAuth === 0) {
+    document.getElementById('export-btn').hidden = false;
+    return;
+  }
+
+  setPhase('ai');
+  setProgress(0, totalAuth, 'Checking with Gemini AI…', `0 of ${totalAuth} authorities`);
+  document.getElementById('ai-status').hidden = false;
 
   await limitedMap(allAuthorities, 3, async ({ r, a, ri, ai }) => {
     try {
@@ -299,6 +756,8 @@ async function runCheck() {
       );
     } catch (e) {
       a.llm = {
+        comparison_basis: 'footnote_only',
+        comparison_source_description: 'Error: ' + e.message,
         proposition_support:    { verdict: 'Cannot verify', explanation: e.message },
         parenthetical_accuracy: { verdict: 'Cannot verify', explanation: '' },
         pincite_accuracy:       { verdict: 'Cannot verify', explanation: '' },
@@ -308,15 +767,21 @@ async function runCheck() {
         error: e.message,
       };
     }
+    doneAuth++;
+    setProgress(doneAuth, totalAuth,
+      `Checking with Gemini AI…`, `${doneAuth} of ${totalAuth} authorities`);
     updateAuthCard(ri, ai, a);
     updateFootnoteHeader(ri, data.results[ri]);
+    updateSummary(data.results);
   });
 
-  document.getElementById('prog-label').textContent = '';
+  document.getElementById('ai-status').hidden = true;
+  document.getElementById('export-btn').hidden = false;
   updateSummary(data.results);
+  updateFilterCounts(data.results);
 }
 
-// ── Concurrency limiter — run at most `n` tasks simultaneously ──────
+// ── Concurrency limiter ────────────────────────────
 async function limitedMap(items, n, fn) {
   const results = new Array(items.length);
   let idx = 0;
@@ -330,24 +795,20 @@ async function limitedMap(items, n, fn) {
   return results;
 }
 
-// ── Retry with exponential backoff on 429 ──────────────────────────
+// ── Retry with exponential backoff on 429 ─────────
 async function withRetry(fn, maxAttempts = 5) {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      return await fn();
-    } catch (e) {
+    try { return await fn(); }
+    catch (e) {
       const is429 = e.message.includes('429') || e.message.toLowerCase().includes('resource exhausted');
-      if (is429 && attempt < maxAttempts - 1) {
-        const wait = (2 ** attempt) * 3000 + Math.random() * 1000; // 3s, 6s, 12s, 24s + jitter
-        await new Promise(r => setTimeout(r, wait));
-      } else {
-        throw e;
-      }
+      if (is429 && attempt < maxAttempts - 1)
+        await new Promise(r => setTimeout(r, (2**attempt)*3000 + Math.random()*1000));
+      else throw e;
     }
   }
 }
 
-// ── Gemini call with Google Search grounding ───────────────────────
+// ── Gemini call ────────────────────────────────────
 async function callGemini(apiKey, sentence, footnoteText, sourceSnippet, sourceName) {
   const snippetBlock = sourceSnippet
     ? `\nPRE-FETCHED SOURCE EXCERPT (from ${sourceName || 'database'}):\n${sourceSnippet}\n`
@@ -397,114 +858,185 @@ Respond ONLY with a JSON object (no markdown fences):
 
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
-    tools: [{ google_search: {} }],          // ← Gemini searches the web
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 1500,
-      // responseMimeType not supported with grounding tools
-    },
+    tools: [{ google_search: {} }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 1500 },
   };
 
   const resp = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
   );
-
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
     throw new Error(err.error?.message || `Gemini error ${resp.status}`);
   }
-
   const data = await resp.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-  // Extract grounding source URLs from metadata
   const groundingSources = (data.candidates?.[0]?.groundingMetadata?.groundingChunks || [])
     .map(c => c.web).filter(Boolean);
 
-  // Parse JSON — Gemini sometimes wraps in ```json``` despite instructions
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error(`No JSON in Gemini response: ${text.slice(0, 200)}`);
   const result = JSON.parse(jsonMatch[0]);
-  result.grounding_sources = groundingSources;   // [{uri, title}]
+  result.grounding_sources = groundingSources;
   return result;
 }
 
-// ── Render ─────────────────────────────────────────────────────────
+// ── Render results ─────────────────────────────────
 function renderResults(data) {
   show('screen-results');
   const results = data.results || [];
-  document.getElementById('results-title').textContent =
-    `${results.length} footnote${results.length !== 1 ? 's' : ''} — ${data.filename || ''}`;
-
+  document.getElementById('results-headline').textContent =
+    `${results.length} footnote${results.length !== 1 ? 's' : ''}`;
+  document.getElementById('results-file').textContent = data.filename || '';
   updateSummary(results);
+  updateFilterCounts(results);
   document.getElementById('cards').innerHTML = '';
   results.forEach((r, ri) => document.getElementById('cards').appendChild(makeFootnoteCard(r, ri)));
 }
 
 function updateSummary(results) {
-  let supports = 0, issues = 0, unverified = 0, authTotal = 0, pending = 0;
-  results.forEach(r => {
+  let supports = 0, issues = 0, questionable = 0, unverified = 0, authTotal = 0, pending = 0;
+  results.forEach(r =>
     (r.authorities || []).forEach(a => {
       authTotal++;
       if (!a.llm) { pending++; return; }
       const v = a.llm.proposition_support?.verdict || '';
       if (v === 'Supports') supports++;
       else if (v === 'Does not support') issues++;
+      else if (v === 'Questionable') questionable++;
       else unverified++;
-    });
-  });
+    })
+  );
   document.getElementById('summary').innerHTML = `
-    <div class="stat"><span class="num">${results.length}</span><span class="lbl">Footnotes</span></div>
-    <div class="stat"><span class="num">${authTotal}</span><span class="lbl">Authorities</span></div>
-    <div class="stat"><span class="num" style="color:#16a34a">${supports}</span><span class="lbl">Support confirmed</span></div>
-    <div class="stat"><span class="num" style="color:#dc2626">${issues}</span><span class="lbl">Potential problems</span></div>
-    <div class="stat"><span class="num" style="color:#94a3b8">${unverified}</span><span class="lbl">Cannot verify</span></div>
-    ${pending ? `<div class="stat"><span class="num" style="color:#f59e0b">${pending}</span><span class="lbl">Checking…</span></div>` : ''}
+    <div class="stat-card s-total"><span class="stat-num">${results.length}</span><span class="stat-lbl">Footnotes</span></div>
+    <div class="stat-card s-total"><span class="stat-num">${authTotal}</span><span class="stat-lbl">Authorities</span></div>
+    <div class="stat-card s-ok"><span class="stat-num">${supports}</span><span class="stat-lbl">Supported</span></div>
+    <div class="stat-card s-bad"><span class="stat-num">${issues}</span><span class="stat-lbl">Issues found</span></div>
+    <div class="stat-card s-warn"><span class="stat-num">${questionable}</span><span class="stat-lbl">Questionable</span></div>
+    <div class="stat-card s-grey"><span class="stat-num">${unverified}</span><span class="stat-lbl">Unverified</span></div>
+    ${pending ? `<div class="stat-card s-pending"><span class="stat-num">${pending}</span><span class="stat-lbl">Checking…</span></div>` : ''}
   `;
 }
 
-// Update a single authority card in place once Gemini responds
+function updateFilterCounts(results) {
+  let all=0, ok=0, issues=0, questionable=0, unverified=0;
+  results.forEach(r =>
+    (r.authorities || []).forEach(a => {
+      all++;
+      const v = a.llm?.proposition_support?.verdict || '';
+      if (v === 'Supports') ok++;
+      else if (v === 'Does not support') issues++;
+      else if (v === 'Questionable') questionable++;
+      else unverified++;
+    })
+  );
+  document.getElementById('fc-all').textContent = all;
+  document.getElementById('fc-ok').textContent = ok;
+  document.getElementById('fc-issues').textContent = issues;
+  document.getElementById('fc-questionable').textContent = questionable;
+  document.getElementById('fc-unverified').textContent = unverified;
+}
+
+// ── Filter ─────────────────────────────────────────
+function setFilter(btn, filter) {
+  currentFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.cit-card').forEach(card => {
+    card.hidden = !cardMatchesFilter(card, filter);
+  });
+}
+function cardMatchesFilter(card, filter) {
+  if (filter === 'all') return true;
+  const pills = card.querySelectorAll('.auth-card .vp');
+  const verdicts = [...pills].map(p => p.textContent.trim());
+  if (filter === 'ok')           return verdicts.some(v => v === 'Supports');
+  if (filter === 'issues')       return verdicts.some(v => v === 'Does not support');
+  if (filter === 'questionable') return verdicts.some(v => v === 'Questionable');
+  if (filter === 'unverified')   return verdicts.some(v => v === 'Cannot verify') && !verdicts.some(v => v === 'Does not support');
+  return true;
+}
+
+// ── Expand / Collapse all ──────────────────────────
+function toggleAll(open) {
+  document.querySelectorAll('.cit-card:not([hidden])').forEach(card => {
+    const body = card.querySelector('.cit-body');
+    if (!body) return;
+    body.style.display = open ? '' : 'none';
+    card.classList.toggle('open', open);
+  });
+}
+
+// ── Export ─────────────────────────────────────────
+function exportResults() {
+  if (!lastResults) return;
+  const blob = new Blob([JSON.stringify(lastResults, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (lastResults.filename || 'results').replace(/\.docx$/i,'') + '-lexcheck.json';
+  a.click();
+}
+
+// ── Update a single auth card in place ────────────
 function updateAuthCard(ri, ai, a) {
   const el = document.getElementById(`auth-${ri}-${ai}`);
   if (!el) return;
   const fresh = makeAuthCard(a, ai + 1, ri);
   el.replaceWith(fresh);
+  if (currentFilter !== 'all') {
+    const card = document.getElementById(`fn-${ri}`);
+    if (card) card.hidden = !cardMatchesFilter(card, currentFilter);
+  }
 }
 
-// Refresh the footnote-level badge row after all its authorities are updated
 function updateFootnoteHeader(ri, r) {
   const pill = document.getElementById(`fn-pills-${ri}`);
   if (!pill) return;
   pill.innerHTML = (r.authorities || []).map((a, i) => {
-    if (!a.llm) return `<span class="vp vp-cannot" title="${esc(a.text)}">Auth ${i+1} …</span>`;
+    if (!a.llm) return `<span class="checking-pill">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>`;
     const v = a.llm.proposition_support?.verdict || 'Cannot verify';
-    const cls = v === 'Supports' ? 'vp-supports' : v === 'Does not support' ? 'vp-not-support' : v === 'Questionable' ? 'vp-questionable' : 'vp-cannot';
+    const cls = v === 'Supports' ? 'vp-supports'
+              : v === 'Does not support' ? 'vp-not-support'
+              : v === 'Questionable' ? 'vp-questionable'
+              : 'vp-cannot';
     return `<span class="vp ${cls}" title="${esc(a.text)}">Auth ${i+1}</span>`;
   }).join('');
+
+  const verdicts = (r.authorities || []).map(a => a.llm?.proposition_support?.verdict || '');
+  const card = document.getElementById(`fn-${ri}`);
+  if (card) {
+    card.className = 'cit-card ' + (
+      verdicts.some(v => v === 'Does not support') ? 'has-issues' :
+      verdicts.some(v => v === 'Questionable')     ? 'has-warn' :
+      verdicts.every(v => v === 'Supports')        ? 'all-good' : 'unverified'
+    );
+  }
 }
 
-// ── Footnote card (tree root) ───────────────────────────────────────
+// ── Footnote card ──────────────────────────────────
 function makeFootnoteCard(r, ri) {
   const auths = r.authorities || [];
   const wrap = document.createElement('div');
   wrap.className = 'cit-card unverified';
+  wrap.id = `fn-${ri}`;
   wrap.innerHTML = `
     <div class="cit-header" onclick="toggleCard(this)">
       <span class="fn-badge">${r.number}</span>
       <div class="cit-preview">
         <div class="cit-fn-text">${esc(r.footnote)}</div>
-        ${r.sentence ? `<div class="cit-sentence">"${esc(r.sentence)}"</div>` : ''}
+        ${r.sentence ? `<div class="cit-sentence" id="sent-${ri}">"${esc(r.sentence)}"</div>` : ''}
       </div>
       <div class="cit-verdicts" id="fn-pills-${ri}">
-        ${auths.map((a, i) => `<span class="vp vp-cannot" title="${esc(a.text)}">Auth ${i+1} …</span>`).join('')}
+        ${auths.map((a, i) => `<span class="checking-pill">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>`).join('')}
       </div>
-      <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
     </div>
     <div class="cit-body" style="display:none">
       ${r.sentence ? `
       <div>
-        <div class="section-title">Proposition cited</div>
+        <div class="section-title">Proposition cited for</div>
         <div class="prop-box">${esc(r.sentence)}</div>
       </div>` : ''}
       <div>
@@ -512,13 +1044,12 @@ function makeFootnoteCard(r, ri) {
         <div class="auth-tree"></div>
       </div>
     </div>`;
-
   const tree = wrap.querySelector('.auth-tree');
   auths.forEach((a, i) => tree.appendChild(makeAuthCard(a, i + 1, ri)));
   return wrap;
 }
 
-// ── Authority sub-card (tree leaf) ─────────────────────────────────
+// ── Authority sub-card ─────────────────────────────
 function makeAuthCard(a, idx, ri) {
   const ai = idx - 1;
   const llm  = a.llm || {};
@@ -527,30 +1058,49 @@ function makeAuthCard(a, idx, ri) {
   const pin  = llm.pincite_accuracy || {};
   const propV = prop.verdict || 'Cannot verify';
 
-  const borderCol = propV === 'Supports'         ? '#22c55e'
-                  : propV === 'Does not support' ? '#ef4444'
-                  : propV === 'Questionable'     ? '#f59e0b'
-                  :                               '#94a3b8';
-
-  const srcPill = a.source_url
-    ? `<a class="vp vp-source" href="${a.source_url}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">${esc(sourceLabel(a.source_name))} ↗</a>`
-    : `<span class="vp vp-no-source">${esc(sourceLabel(a.source_name))}</span>`;
+  const borderCol = propV === 'Supports'         ? 'var(--green)'
+                  : propV === 'Does not support' ? 'var(--red)'
+                  : propV === 'Questionable'     ? 'var(--amber)'
+                  :                               'var(--slate-border)';
 
   const div = document.createElement('div');
   div.className = 'auth-card';
   div.id = `auth-${ri}-${ai}`;
   div.style.cssText = `border-left:3px solid ${borderCol}`;
 
-  // If Gemini hasn't run yet, show a checking spinner
   if (!a.llm) {
     div.innerHTML = `
       <div class="auth-header">
         <span class="auth-num">${idx}</span>
         <span class="auth-text">${esc(a.text)}</span>
-        <div class="cit-verdicts"><span class="vp vp-cannot">Checking…</span></div>
+        <div class="cit-verdicts"><span class="checking-pill">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
       </div>`;
     return div;
   }
+
+  const basis = llm.comparison_basis || 'footnote_only';
+  const basisDesc = llm.comparison_source_description || '';
+  const [basisCls, basisIcon, basisLabel] =
+    basis === 'original_source'  ? ['basis-original',  '✔', 'Original source'] :
+    basis === 'secondary_source' ? ['basis-secondary', '⚠', 'Secondary source'] :
+                                   ['basis-footnote',   '✘', 'Source not found — footnote text only'];
+
+  const srcPill = a.source_url
+    ? `<a class="vp vp-source" href="${a.source_url}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">${esc(sourceLabel(a.source_name))} ↗</a>`
+    : `<span class="vp vp-no-source">${esc(sourceLabel(a.source_name))}</span>`;
+
+  const groundingHtml = (llm.grounding_sources && llm.grounding_sources.length)
+    ? `<div class="mt12">
+        <div class="section-title">Pages read by Gemini</div>
+        <div class="sources-list">
+          ${llm.grounding_sources.map(s =>
+            `<a class="source-link secondary" href="${esc(s.uri)}" target="_blank" rel="noreferrer">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              ${esc(s.title || s.uri)}</a>`
+          ).join('')}
+        </div>
+      </div>`
+    : '';
 
   div.innerHTML = `
     <div class="auth-header" onclick="toggleAuthCard(this)">
@@ -559,22 +1109,17 @@ function makeAuthCard(a, idx, ri) {
       <div class="cit-verdicts" style="gap:4px">
         ${verdictPill(propV,'prop')}${srcPill}
       </div>
-      <svg class="chev" style="width:16px;height:16px;flex-shrink:0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      <button class="copy-btn" title="Copy citation" onclick="event.stopPropagation();copyText('${esc(a.text).replace(/'/g,"\\'")}')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+      </button>
+      <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
     </div>
-    <div class="auth-body" style="display:none">
+    <div class="auth-body">
 
-      ${(() => {
-        const basis = llm.comparison_basis || 'footnote_only';
-        const desc  = llm.comparison_source_description || '';
-        const [cls, icon, label] =
-          basis === 'original_source'  ? ['basis-original',  '✔', 'Compared against: Original source'] :
-          basis === 'secondary_source' ? ['basis-secondary', '⚠', 'Compared against: Secondary source'] :
-                                        ['basis-footnote',   '✘', 'Compared against: Footnote text only (source not found online)'];
-        return `<div class="basis-banner ${cls}">
-          <span class="basis-icon">${icon}</span>
-          <div><span class="basis-label">${label}</span>${desc ? esc(desc) : ''}</div>
-        </div>`;
-      })()}
+      <div class="basis-banner ${basisCls}">
+        <span class="basis-icon">${basisIcon}</span>
+        <div><span class="basis-label">Compared against: ${basisLabel}.</span>${basisDesc ? ' ' + esc(basisDesc) : ''}</div>
+      </div>
 
       <div class="check-row">
         <span class="check-label">Supports proposition?</span>
@@ -590,7 +1135,7 @@ function makeAuthCard(a, idx, ri) {
           <div class="check-expl">${esc(par.explanation||'')}</div>
         </div>
       </div>
-      <div class="check-row">
+      <div class="check-row" style="border-bottom:none">
         <span class="check-label">Pincite accurate?</span>
         <div class="check-content">
           ${verdictPill(pin.verdict,'pin')}
@@ -599,44 +1144,38 @@ function makeAuthCard(a, idx, ri) {
       </div>
 
       ${llm.overall ? `
-      <div style="margin-top:10px">
+      <div class="mt8">
         <div class="overall-box">${esc(llm.overall)}</div>
         ${llm.confidence ? `<div class="conf">Confidence: ${llm.confidence}</div>` : ''}
       </div>` : ''}
 
-      <div style="margin-top:12px">
+      <div class="mt12">
         <div class="section-title">Source</div>
         ${a.source_url
-          ? `<a class="source-link" href="${a.source_url}" target="_blank" rel="noreferrer" style="margin-bottom:8px;display:inline-flex">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          ? `<a class="source-link mt4" href="${a.source_url}" target="_blank" rel="noreferrer">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               Open ${esc(sourceLabel(a.source_name))}</a>`
           : `<span class="source-note">${esc(sourceLabel(a.source_name))}</span>`}
-        ${a.source_note ? `<div class="source-note">${esc(a.source_note)}</div>` : ''}
+        ${a.source_note ? `<span class="source-note">${esc(a.source_note)}</span>` : ''}
         ${llm.relevant_quote
-          ? `<div class="quote-box" style="margin-top:8px">
+          ? `<div class="quote-box mt8">
                <div class="quote-label">Relevant passage</div>
                <blockquote>${esc(llm.relevant_quote)}</blockquote>
              </div>`
           : (a.source_snippet
-              ? `<div class="source-snippet" style="margin-top:8px">${esc(a.source_snippet)}</div>`
+              ? `<div class="source-snippet mt8">${esc(a.source_snippet)}</div>`
               : '')}
       </div>
 
-      ${(llm.grounding_sources && llm.grounding_sources.length)
-        ? `<div style="margin-top:12px">
-            <div class="section-title">Sources found by Gemini via Google Search</div>
-            <div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">
-              ${llm.grounding_sources.map(s =>
-                `<a class="source-link" href="${esc(s.uri)}" target="_blank" rel="noreferrer">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                  ${esc(s.title || s.uri)}</a>`
-              ).join('')}
-            </div>
-          </div>`
-        : ''}
+      ${groundingHtml}
 
     </div>`;
   return div;
+}
+
+// ── Copy to clipboard ──────────────────────────────
+function copyText(text) {
+  navigator.clipboard.writeText(text).catch(() => {});
 }
 
 function toggleAuthCard(header) {
@@ -697,20 +1236,28 @@ function toggleCard(header) {
 
 function showAlert(msg) {
   document.getElementById('alert-box').innerHTML =
-    `<div class="alert"><strong>Error:</strong> ${esc(msg)}</div>`;
+    `<div class="alert">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <div><strong>Error:</strong> ${esc(msg)}</div>
+    </div>`;
 }
 
 function show(id) {
-  ['screen-setup','screen-progress','screen-results'].forEach(s =>
-    document.getElementById(s).style.display = s === id ? '' : 'none'
-  );
+  ['screen-setup','screen-progress','screen-results'].forEach(s => {
+    document.getElementById(s).hidden = s !== id;
+  });
 }
 
 function reset() {
-  chosenFile = null;
+  chosenFile = null; lastResults = null; currentFilter = 'all';
+  totalAuth = 0; doneAuth = 0;
   document.getElementById('file-input').value = '';
-  document.getElementById('chosen-file').textContent = '';
+  document.getElementById('file-preview').hidden = true;
   document.getElementById('alert-box').innerHTML = '';
+  document.getElementById('ai-status').hidden = true;
+  document.getElementById('export-btn').hidden = true;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('[data-filter="all"]').classList.add('active');
   updateRunBtn();
   show('screen-setup');
 }
