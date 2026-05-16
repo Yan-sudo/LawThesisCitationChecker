@@ -956,16 +956,28 @@ RULE: comparison_basis may only be "original_source" or "secondary_source" when 
     || groundingSources.find(s => isValidUrl(s.uri))?.uri
     || null;
 
-  if (!resolvedUrl && (result.comparison_basis === 'original_source' || result.comparison_basis === 'secondary_source')) {
+  // Rule 1: any claim of reading a source (original or secondary) requires a real URL.
+  if (!resolvedUrl &&
+      (result.comparison_basis === 'original_source' || result.comparison_basis === 'secondary_source')) {
     result.comparison_basis = 'footnote_only';
     result.comparison_source_description =
-      'Gemini could not provide a verifiable URL for the source it claimed to read — verdict downgraded to Cannot verify.';
-    if (result.proposition_support) {
-      result.proposition_support.verdict = 'Cannot verify';
-      result.proposition_support.explanation =
-        '[No verifiable source URL] ' + (result.proposition_support.explanation || '');
-    }
+      'Gemini did not provide a verifiable URL for the source it claimed to read — verdict downgraded to Cannot verify.';
+    if (!result.proposition_support) result.proposition_support = {};
+    result.proposition_support.verdict = 'Cannot verify';
+    result.proposition_support.explanation =
+      '[No verifiable source URL returned] ' + (result.proposition_support.explanation || '');
   }
+
+  // Rule 2: footnote_only basis must never yield "Supports".
+  // Gemini sometimes ignores the prompt and returns "Supports" from citation text alone.
+  if (result.comparison_basis === 'footnote_only' &&
+      result.proposition_support?.verdict === 'Supports') {
+    result.proposition_support.verdict = 'Cannot verify';
+    result.proposition_support.explanation =
+      '[Verdict downgraded: "Supports" requires reading the actual source] ' +
+      (result.proposition_support.explanation || '');
+  }
+
   // Always normalise source_url_read to the validated URL (or null)
   result.source_url_read = resolvedUrl;
 
@@ -1081,15 +1093,17 @@ function exportResults() {
 function updateAuthCard(ri, ai, a) {
   const el = document.getElementById(`auth-${ri}-${ai}`);
   if (!el) return;
-  const wasOpen = el.classList.contains('open');
+  const oldBody = el.querySelector('.auth-body');
+  // Auth bodies default to open (no display:none), so treat absence of explicit 'none' as open
+  const wasOpen = !oldBody || oldBody.style.display !== 'none';
   const fresh = makeAuthCard(a, ai + 1, ri);
-
   const hasIssue = a.llm?.proposition_support?.verdict === 'Does not support';
 
-  // Preserve open state; auto-open if there's an issue
-  if (wasOpen || hasIssue) {
+  // Collapse only if the user had explicitly closed it AND there's no issue
+  if (!wasOpen && !hasIssue) {
     const body = fresh.querySelector('.auth-body');
-    if (body) body.style.display = '';
+    if (body) body.style.display = 'none';
+  } else {
     fresh.classList.add('open');
   }
 
@@ -1231,7 +1245,7 @@ function makeAuthCard(a, idx, ri) {
 
   // Small "Source ↗" button in the auth header — always visible even when card is collapsed
   const headerLinkHtml = readUrl
-    ? `<a class="header-src-btn" href="${readUrl}" target="_blank" rel="noreferrer"
+    ? `<a class="header-src-btn" href="${esc(readUrl)}" target="_blank" rel="noreferrer"
          onclick="event.stopPropagation()" title="Open source read by Gemini">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
         Source</a>`
@@ -1239,7 +1253,7 @@ function makeAuthCard(a, idx, ri) {
 
   // "Open ↗" link embedded in the basis banner
   const basisLinkHtml = readUrl
-    ? `<a class="basis-link" href="${readUrl}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">Open ↗</a>`
+    ? `<a class="basis-link" href="${esc(readUrl)}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">Open ↗</a>`
     : '';
 
   // Primary link block for the source section in the body
@@ -1249,7 +1263,7 @@ function makeAuthCard(a, idx, ri) {
                     : isSecondary ? 'Open secondary source'
                     :               'Open source';
     primaryLinkHtml = `
-      <a class="source-link mt4" href="${readUrl}" target="_blank" rel="noreferrer">
+      <a class="source-link mt4" href="${esc(readUrl)}" target="_blank" rel="noreferrer">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
         ${linkLabel}</a>`;
   } else if (needsLink) {
@@ -1298,7 +1312,7 @@ function makeAuthCard(a, idx, ri) {
       </button>
       <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
     </div>
-    <div class="auth-body" style="display:none">
+    <div class="auth-body">
 
       <div class="basis-banner ${basisCls}">
         <span class="basis-icon">${basisIcon}</span>
@@ -1406,16 +1420,22 @@ function verdictPill(verdict, type) {
 
 function sourceLabel(name) {
   return ({
-    courtlistener: 'CourtListener',
-    uscode_house:  'U.S. House USCODE',
-    ecfr:          'eCFR',
-    crossref:      'CrossRef',
-    openalex:      'OpenAlex',
-    google_books:  'Google Books',
-    not_found:     'Source not found',
-    paywalled:     'Paywalled',
-    error:         'Lookup error',
-    unrecognised:  'Format not recognised',
+    courtlistener:   'CourtListener',
+    uscode_house:    'U.S. House USCODE',
+    ecfr:            'eCFR',
+    crossref:        'CrossRef',
+    openalex:        'OpenAlex',
+    google_books:    'Google Books',
+    constitution:    'Constitution',
+    legislative:     'Congress.gov',
+    administrative:  'Agency order',
+    restatement:     'ALI / Restatement',
+    id_citation:     'Id. (prior source)',
+    supra_citation:  'Supra (prior source)',
+    not_found:       'Source not found',
+    paywalled:       'Paywalled',
+    error:           'Lookup error',
+    unrecognised:    'Format not recognised',
   })[name] || name || 'Unknown';
 }
 
