@@ -90,6 +90,17 @@ r15 = cp.parse("Miranda, 384 U.S. at 444")
 check(r15.citation_type == cp.CitationType.SHORT_CASE, "SHORT_CASE: 'Miranda, 384 U.S. at 444' detected")
 check(r15.pincite == "444", f"SHORT_CASE: pincite='{r15.pincite}'")
 
+r16 = cp.parse("In re Blockratize, Inc. d/b/a Polymarket, CFTC Docket No. 22-09 (Jan. 3, 2022)")
+check(r16.citation_type == cp.CitationType.ADMINISTRATIVE, "ADMIN: CFTC order detected")
+check(r16.bluebook_rule == "Rule 14.3", f"ADMIN: rule='{r16.bluebook_rule}'")
+check(r16.year == "2022", f"ADMIN: year='{r16.year}'")
+
+r17 = cp.parse("In re Coinbase, Inc., SEC Release No. 97990 (June 6, 2023)")
+check(r17.citation_type == cp.CitationType.ADMINISTRATIVE, "ADMIN: SEC release detected")
+
+r18 = cp.parse("In the Matter of XYZ Corp., FTC Docket No. C-1234 (2020)")
+check(r18.citation_type == cp.CitationType.ADMINISTRATIVE, "ADMIN: FTC docket detected")
+
 # ── Bluebook tests ─────────────────────────────────────────────────────────────
 
 print("\n── Bluebook Validator ───────────────────────────")

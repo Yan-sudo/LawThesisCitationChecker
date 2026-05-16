@@ -10,6 +10,7 @@ Supported types:
   CONSTITUTION → Rule 11       (U.S. Const., state constitutions)
   RESTATEMENT  → Rule 12.9.4   (Restatements, Model Codes, UCC)
   LEGISLATIVE  → Rule 13       (bills, reports, hearings, executive orders)
+  ADMINISTRATIVE → Rule 14.3   (agency adjudications & orders: In re X, CFTC Docket No. YY-NN)
   ARTICLE      → Rule 16       (law review and journal articles)
   BOOK         → Rule 15       (books, treatises, nonperiodic materials)
   ID           → Rule 4.1      (id. short form — same source)
@@ -24,10 +25,11 @@ from enum import Enum
 
 
 class CitationType(str, Enum):
-    CASE         = "case"
-    SHORT_CASE   = "short_case"
-    STATUTE      = "statute"
-    CONSTITUTION = "constitution"
+    CASE           = "case"
+    SHORT_CASE     = "short_case"
+    STATUTE        = "statute"
+    CONSTITUTION   = "constitution"
+    ADMINISTRATIVE = "administrative"
     RESTATEMENT  = "restatement"
     LEGISLATIVE  = "legislative"
     ARTICLE      = "article"
@@ -43,8 +45,9 @@ BLUEBOOK_RULES: dict[CitationType, tuple[str, str]] = {
     CitationType.CASE:         ("Rule 10",     "Cases — full citation"),
     CitationType.SHORT_CASE:   ("Rule 10",     "Cases — short form"),
     CitationType.STATUTE:      ("Rule 12",     "Statutory codes (U.S.C., C.F.R.)"),
-    CitationType.CONSTITUTION: ("Rule 11",     "Constitutions"),
-    CitationType.RESTATEMENT:  ("Rule 12.9.4", "Restatements & model codes"),
+    CitationType.CONSTITUTION:   ("Rule 11",     "Constitutions"),
+    CitationType.ADMINISTRATIVE: ("Rule 14.3",  "Administrative adjudications & agency orders"),
+    CitationType.RESTATEMENT:    ("Rule 12.9.4","Restatements & model codes"),
     CitationType.LEGISLATIVE:  ("Rule 13",     "Legislative & executive materials"),
     CitationType.ARTICLE:      ("Rule 16",     "Periodical materials (journal articles)"),
     CitationType.BOOK:         ("Rule 15",     "Books & nonperiodic materials"),
@@ -98,6 +101,7 @@ def parse(raw: str) -> ParsedCitation:
         or _try_constitution(text)
         or _try_restatement(text)
         or _try_legislative(text)
+        or _try_administrative(text)
         or _try_statute(text)
         or _try_article(text)
         or _try_case(text)
@@ -256,6 +260,53 @@ def _try_legislative(text: str) -> Optional[ParsedCitation]:
     year_m = re.search(r"\((\d{4})\)", text)
     c.year = year_m.group(1) if year_m else None
     c.search_query = text[:80]
+    return c
+
+
+# ── Rule 14.3 — Administrative adjudications & agency orders ─────────────────
+# Covers:
+#   In re Blockratize, Inc. d/b/a Polymarket, CFTC Docket No. 22-09 (Jan. 3, 2022)
+#   In re Coinbase, Inc., SEC Release No. 97990 (June 6, 2023)
+#   In the Matter of X, FTC Docket No. C-1234 (2020)
+#   Exchange Act Release No. 34-12345, 88 Fed. Reg. 1234 (Jan. 1, 2023)
+#   SEC No-Action Letter, XYZ Corp. (Mar. 5, 2020)
+#
+# Bluebook Rule 14.3: administrative adjudications follow case-like format:
+#   Party Name, Agency Vol. Rep. Pg. (Agency Date)
+# For docket-number citations the form is:
+#   Agency Docket No. XX-NN  OR  Agency Release No. XX-NNNNN
+
+# Known agency abbreviations (extend as needed)
+_AGENCIES = (
+    r"CFTC|SEC|FTC|FCC|NLRB|FERC|EPA|FAA|FDA|FDIC|OCC|CFPB|DOJ|"
+    r"FINRA|FinCEN|OFAC|IRS|EEOC|OSHA|NRC|FRB|OTS|NCUA"
+)
+
+_ADMIN_RE = re.compile(
+    r"(?:"
+    # In re / In the Matter of + any agency docket or release number
+    r"(?:In\s+re|In\s+the\s+Matter\s+of)\s+.{3,120}?"
+    r"(?:(?:" + _AGENCIES + r")\s+(?:Docket|Release|Admin\.|File)\s+No\.?\s*[\w\-\.\,\s]+"
+    r"|(?:Docket|Release|Admin\.\s+Proceeding)\s+No\.?\s*[\w\-\.\,\s]+)"
+    r"|"
+    # Release-number-first citations: SEC Release No. 34-12345
+    r"(?:" + _AGENCIES + r")\s+(?:Release|Exch(?:ange)?\s+Act\s+Release|Admin\.)\s+No\.?\s*[\w\-\,\s]+"
+    r"|"
+    # No-Action Letters, Staff Bulletins, guidance documents
+    r"(?:" + _AGENCIES + r")\s+(?:No-Action\s+Letter|Staff\s+Bull(?:etin)?|Guidance|Advisory)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _try_administrative(text: str) -> Optional[ParsedCitation]:
+    if not _ADMIN_RE.search(text):
+        return None
+    c = ParsedCitation(raw=text, citation_type=CitationType.ADMINISTRATIVE)
+    # Extract year from the first parenthetical that contains a 4-digit year
+    year_m = re.search(r"\((?:[A-Za-z]+\.?\s+\d+,?\s+)?(\d{4})\)", text)
+    c.year = year_m.group(1) if year_m else None
+    c.search_query = text[:100]
     return c
 
 

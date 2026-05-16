@@ -282,6 +282,18 @@ def _fetch_source(parsed: cp.ParsedCitation) -> dict:
                 ),
             }
 
+        if parsed.citation_type == cp.CitationType.ADMINISTRATIVE:
+            return {
+                "source": "administrative",
+                "url": "https://www.cftc.gov/LawRegulation/EnforcementActions/index.htm",
+                "snippet": None,
+                "full_text_available": False,
+                "note": (
+                    "Administrative agency order (Bluebook Rule 14.3). "
+                    "Gemini will search for the specific docket or release number."
+                ),
+            }
+
         if parsed.citation_type == cp.CitationType.RESTATEMENT:
             return {
                 "source": "restatement",
