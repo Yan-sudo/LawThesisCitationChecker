@@ -328,6 +328,12 @@ main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
   transition:background var(--transition);
 }
 .source-link:hover{background:var(--brand-mid)}
+.no-link-warning{
+  display:flex;align-items:flex-start;gap:7px;
+  background:var(--red-bg);border:1px solid var(--red-border);
+  border-radius:6px;padding:8px 12px;font-size:12px;
+  color:#7f1d1d;margin-top:4px;line-height:1.5;
+}
 .source-link.secondary{background:var(--page);color:var(--text-2);border:1.5px solid var(--border)}
 .source-link.secondary:hover{border-color:var(--accent);color:var(--accent);background:#fff}
 .source-note{font-size:12px;color:var(--text-3);font-style:italic;margin-top:4px;display:block}
@@ -857,13 +863,15 @@ Respond ONLY with a JSON object (no markdown fences):
 {
   "comparison_basis": "original_source | secondary_source | footnote_only",
   "comparison_source_description": "one sentence: what you actually read, e.g. 'Full opinion from CourtListener' or 'Case summary on Justia' or 'Could not locate source online'",
+  "source_url_read": "the exact URL of the page you read — REQUIRED if comparison_basis is original_source or secondary_source, null otherwise",
   "proposition_support": {"verdict": "Supports | Does not support | Questionable | Cannot verify", "explanation": "1-2 sentences"},
   "parenthetical_accuracy": {"verdict": "Accurate | Inaccurate | No parenthetical | Cannot verify", "explanation": "1-2 sentences"},
   "pincite_accuracy": {"verdict": "Accurate | Inaccurate | No pincite | Cannot verify", "explanation": "1-2 sentences"},
   "relevant_quote": "verbatim passage from what you read, or null",
   "overall": "one sentence summary",
   "confidence": "High | Medium | Low"
-}`;
+}
+IMPORTANT: If comparison_basis is "original_source" or "secondary_source", source_url_read MUST be a real URL — not null. If you cannot provide a URL, you must change comparison_basis to "footnote_only".`;
 
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
@@ -1168,13 +1176,62 @@ function makeAuthCard(a, idx, ri) {
         ${llm.confidence ? `<div class="conf">Confidence: ${llm.confidence}</div>` : ''}
       </div>` : ''}
 
-      <div class="mt12">
-        <div class="section-title">Source</div>
-        ${a.source_url
-          ? `<a class="source-link mt4" href="${a.source_url}" target="_blank" rel="noreferrer">
+      ${(() => {
+        // The URL Gemini actually read — required when it claims original/secondary source
+        const readUrl = llm.source_url_read
+          || (llm.grounding_sources && llm.grounding_sources[0]?.uri)
+          || null;
+
+        const isOriginal   = basis === 'original_source';
+        const isSecondary  = basis === 'secondary_source';
+        const needsLink    = isOriginal || isSecondary;
+
+        // Primary source link block
+        let primaryLinkHtml = '';
+        if (readUrl) {
+          const linkLabel = isOriginal  ? 'Open original source'
+                          : isSecondary ? 'Open secondary source'
+                          : 'Open source';
+          primaryLinkHtml = `
+            <a class="source-link mt4" href="${esc(readUrl)}" target="_blank" rel="noreferrer">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              Open ${esc(sourceLabel(a.source_name))}</a>`
-          : `<span class="source-note">${esc(sourceLabel(a.source_name))}</span>`}
+              ${linkLabel}</a>`;
+        } else if (needsLink) {
+          // Gemini claimed it read a source but provided no URL — flag this
+          primaryLinkHtml = `
+            <div class="no-link-warning">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              Gemini reported reading the source but did not provide a link — treat verdict as unverified.
+            </div>`;
+        } else if (a.source_url) {
+          primaryLinkHtml = `
+            <a class="source-link mt4" href="${a.source_url}" target="_blank" rel="noreferrer">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              Open ${esc(sourceLabel(a.source_name))}</a>`;
+        } else {
+          primaryLinkHtml = `<span class="source-note">${esc(sourceLabel(a.source_name))}</span>`;
+        }
+
+        // Additional pages Gemini visited (excluding the primary one already shown)
+        const otherSources = (llm.grounding_sources || [])
+          .filter(s => s.uri !== readUrl);
+        const otherHtml = otherSources.length
+          ? `<div class="mt8">
+              <div class="section-title">Other pages read by Gemini</div>
+              <div class="sources-list mt4">
+                ${otherSources.map(s =>
+                  `<a class="source-link secondary" href="${esc(s.uri)}" target="_blank" rel="noreferrer">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    ${esc(s.title || s.uri)}</a>`
+                ).join('')}
+              </div>
+            </div>`
+          : '';
+
+        return `
+      <div class="mt12">
+        <div class="section-title">Source read by Gemini</div>
+        ${primaryLinkHtml}
         ${a.source_note ? `<span class="source-note">${esc(a.source_note)}</span>` : ''}
         ${llm.relevant_quote
           ? `<div class="quote-box mt8">
@@ -1184,9 +1241,9 @@ function makeAuthCard(a, idx, ri) {
           : (a.source_snippet
               ? `<div class="source-snippet mt8">${esc(a.source_snippet)}</div>`
               : '')}
-      </div>
-
-      ${groundingHtml}
+        ${otherHtml}
+      </div>`;
+      })()}
 
     </div>`;
   return div;
