@@ -1232,7 +1232,7 @@ function makeAuthCard(a, idx, ri) {
       <div class="mt12">
         <div class="section-title">Source read by Gemini</div>
         ${primaryLinkHtml}
-        ${(!readUrl && a.source_note) ? `<span class="source-note">${esc(a.source_note)}</span>` : ''}
+        ${(basis === 'footnote_only' && a.source_note) ? `<span class="source-note">${esc(a.source_note)}</span>` : ''}
         ${llm.relevant_quote
           ? `<div class="quote-box mt8">
                <div class="quote-label">Relevant passage</div>
