@@ -410,6 +410,36 @@ main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
   display:flex;flex-direction:column;gap:0;
 }
 
+/* ── Source link in basis banner ─────────────────── */
+.basis-link{
+  color:inherit;font-size:11.5px;font-weight:700;
+  text-decoration:underline;white-space:nowrap;
+  opacity:.85;flex-shrink:0;padding:0 2px;
+}
+.basis-link:hover{opacity:1}
+
+/* ── Source button in auth header ────────────────── */
+.header-src-btn{
+  display:inline-flex;align-items:center;gap:3px;
+  font-size:11px;font-weight:600;color:var(--accent);
+  background:var(--brand-light);border:1px solid #bfdbfe;
+  border-radius:5px;padding:2px 7px;text-decoration:none;
+  white-space:nowrap;flex-shrink:0;transition:background var(--transition);
+}
+.header-src-btn:hover{background:#dbeafe}
+
+/* ── Copy toast ──────────────────────────────────── */
+.copy-toast{
+  position:fixed;bottom:28px;left:50%;
+  transform:translateX(-50%) translateY(8px);
+  background:#1e293b;color:#fff;
+  padding:7px 18px;border-radius:99px;
+  font-size:13px;font-weight:500;opacity:0;
+  transition:opacity .18s,transform .18s;
+  pointer-events:none;z-index:9999;
+}
+.copy-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
 /* ── Checking shimmer ────────────────────────────── */
 @keyframes shimmer{0%{background-position:-200% 0} 100%{background-position:200% 0}}
 .checking-pill{
@@ -587,6 +617,10 @@ footer a:hover{text-decoration:underline}
         Unverified <span class="filter-count" id="fc-unverified">0</span>
       </button>
       <div class="toolbar-right">
+        <button class="btn btn-danger-ghost btn-sm" id="jump-issue-btn" onclick="jumpToFirstIssue()" hidden>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+          Jump to issue
+        </button>
         <button class="btn btn-ghost btn-sm" onclick="toggleAll(true)">Expand all</button>
         <button class="btn btn-ghost btn-sm" onclick="toggleAll(false)">Collapse all</button>
         <button class="btn btn-ghost btn-sm" onclick="exportResults()" id="export-btn" hidden>
@@ -794,6 +828,12 @@ async function runCheck() {
   document.getElementById('export-btn').hidden = false;
   updateSummary(data.results);
   updateFilterCounts(data.results);
+
+  // Show jump-to-issue button if any issues found
+  const hasAnyIssue = (data.results || []).some(r =>
+    (r.authorities || []).some(a => a.llm?.proposition_support?.verdict === 'Does not support')
+  );
+  document.getElementById('jump-issue-btn').hidden = !hasAnyIssue;
 }
 
 // ── Concurrency limiter ────────────────────────────
@@ -821,6 +861,13 @@ async function withRetry(fn, maxAttempts = 5) {
       else throw e;
     }
   }
+}
+
+// ── URL validation helper ──────────────────────────
+function isValidUrl(str) {
+  if (!str || typeof str !== 'string') return false;
+  const s = str.trim();
+  return s.startsWith('http://') || s.startsWith('https://');
 }
 
 // ── Gemini call ────────────────────────────────────
@@ -890,44 +937,37 @@ RULE: comparison_basis may only be "original_source" or "secondary_source" when 
   const data = await resp.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
+  // Only keep grounding sources that have a real URL — filter(Boolean) is not enough
+  // because Gemini sometimes returns {title:'...'} objects with missing/empty uri.
   const groundingSources = (data.candidates?.[0]?.groundingMetadata?.groundingChunks || [])
-    .map(c => c.web).filter(Boolean);
+    .map(c => c.web).filter(s => s && isValidUrl(s.uri));
 
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error(`No JSON in Gemini response: ${text.slice(0, 200)}`);
   const result = JSON.parse(jsonMatch[0]);
   result.grounding_sources = groundingSources;
 
-  // ── Hard enforcement: original/secondary source claim requires a verifiable URL.
-  // Resolve the URL from source_url_read first, then grounding metadata.
-  const resolvedUrl = result.source_url_read
-    || (groundingSources[0]?.uri)
+  // ── Hard enforcement: a source claim must be backed by a real URL.
+  // Gemini sometimes returns "null" (string), "N/A", or other non-URLs as source_url_read.
+  // Validate strictly before trusting it.
+  const rawReadUrl = typeof result.source_url_read === 'string'
+    ? result.source_url_read.trim() : null;
+  const resolvedUrl = (isValidUrl(rawReadUrl) ? rawReadUrl : null)
+    || groundingSources.find(s => isValidUrl(s.uri))?.uri
     || null;
 
-  if (!resolvedUrl && result.comparison_basis === 'original_source') {
-    // Gemini claimed it read the original but gave us nothing to show the user.
-    // Downgrade: a claim without a link is not verifiable.
+  if (!resolvedUrl && (result.comparison_basis === 'original_source' || result.comparison_basis === 'secondary_source')) {
     result.comparison_basis = 'footnote_only';
     result.comparison_source_description =
-      'Gemini could not provide a URL for the source it claimed to read — verdict downgraded to Cannot verify.';
+      'Gemini could not provide a verifiable URL for the source it claimed to read — verdict downgraded to Cannot verify.';
     if (result.proposition_support) {
       result.proposition_support.verdict = 'Cannot verify';
       result.proposition_support.explanation =
-        '[No verifiable source URL returned] ' + (result.proposition_support.explanation || '');
+        '[No verifiable source URL] ' + (result.proposition_support.explanation || '');
     }
-  } else if (!resolvedUrl && result.comparison_basis === 'secondary_source') {
-    result.comparison_basis = 'footnote_only';
-    result.comparison_source_description =
-      'Gemini could not provide a URL for the secondary source it claimed to read — verdict downgraded to Cannot verify.';
-    if (result.proposition_support) {
-      result.proposition_support.verdict = 'Cannot verify';
-      result.proposition_support.explanation =
-        '[No verifiable source URL returned] ' + (result.proposition_support.explanation || '');
-    }
-  } else if (resolvedUrl) {
-    // Ensure source_url_read always carries the resolved URL for the UI
-    result.source_url_read = resolvedUrl;
   }
+  // Always normalise source_url_read to the validated URL (or null)
+  result.source_url_read = resolvedUrl;
 
   return result;
 }
@@ -1008,6 +1048,15 @@ function cardMatchesFilter(card, filter) {
   return true;
 }
 
+// ── Jump to first issue ────────────────────────────
+function jumpToFirstIssue() {
+  const first = document.querySelector('.cit-card.has-issues:not([hidden])');
+  if (!first) return;
+  const fnBody = first.querySelector('.cit-body');
+  if (fnBody) { fnBody.style.display = ''; first.classList.add('open'); }
+  first.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 // ── Expand / Collapse all ──────────────────────────
 function toggleAll(open) {
   document.querySelectorAll('.cit-card:not([hidden])').forEach(card => {
@@ -1032,7 +1081,30 @@ function exportResults() {
 function updateAuthCard(ri, ai, a) {
   const el = document.getElementById(`auth-${ri}-${ai}`);
   if (!el) return;
+  const wasOpen = el.classList.contains('open');
   const fresh = makeAuthCard(a, ai + 1, ri);
+
+  const hasIssue = a.llm?.proposition_support?.verdict === 'Does not support';
+
+  // Preserve open state; auto-open if there's an issue
+  if (wasOpen || hasIssue) {
+    const body = fresh.querySelector('.auth-body');
+    if (body) body.style.display = '';
+    fresh.classList.add('open');
+  }
+
+  // Auto-expand the parent footnote card on first issue
+  if (hasIssue) {
+    const fnCard = document.getElementById(`fn-${ri}`);
+    if (fnCard) {
+      const fnBody = fnCard.querySelector('.cit-body');
+      if (fnBody && fnBody.style.display === 'none') {
+        fnBody.style.display = '';
+        fnCard.classList.add('open');
+      }
+    }
+  }
+
   el.replaceWith(fresh);
   if (currentFilter !== 'all') {
     const card = document.getElementById(`fn-${ri}`);
@@ -1134,24 +1206,77 @@ function makeAuthCard(a, idx, ri) {
     return div;
   }
 
-  const basis = llm.comparison_basis || 'footnote_only';
+  const basis    = llm.comparison_basis || 'footnote_only';
   const basisDesc = llm.comparison_source_description || '';
   const [basisCls, basisIcon, basisLabel] =
     basis === 'original_source'  ? ['basis-original',  '✔', 'Original source'] :
     basis === 'secondary_source' ? ['basis-secondary', '⚠', 'Secondary source'] :
                                    ['basis-footnote',   '✘', 'Source not found — footnote text only'];
 
+  // Resolve the verified URL Gemini actually read.
+  // Hoist here so it can be used in BOTH the header and the body.
+  // source_url_read is normalised to null if not a valid URL (see callGemini).
+  const readUrl = (isValidUrl(llm.source_url_read) ? llm.source_url_read : null)
+    || (llm.grounding_sources || []).find(s => isValidUrl(s?.uri))?.uri
+    || null;
+
+  const isOriginal  = basis === 'original_source';
+  const isSecondary = basis === 'secondary_source';
+  const needsLink   = isOriginal || isSecondary;
+
+  // Pre-fetcher database pill (shown in header)
   const srcPill = a.source_url
     ? `<a class="vp vp-source" href="${a.source_url}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">${esc(sourceLabel(a.source_name))} ↗</a>`
     : `<span class="vp vp-no-source">${esc(sourceLabel(a.source_name))}</span>`;
 
-  const groundingHtml = (llm.grounding_sources && llm.grounding_sources.length)
-    ? `<div class="mt12">
-        <div class="section-title">Pages read by Gemini</div>
-        <div class="sources-list">
-          ${llm.grounding_sources.map(s =>
+  // Small "Source ↗" button in the auth header — always visible even when card is collapsed
+  const headerLinkHtml = readUrl
+    ? `<a class="header-src-btn" href="${readUrl}" target="_blank" rel="noreferrer"
+         onclick="event.stopPropagation()" title="Open source read by Gemini">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        Source</a>`
+    : '';
+
+  // "Open ↗" link embedded in the basis banner
+  const basisLinkHtml = readUrl
+    ? `<a class="basis-link" href="${readUrl}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">Open ↗</a>`
+    : '';
+
+  // Primary link block for the source section in the body
+  let primaryLinkHtml = '';
+  if (readUrl) {
+    const linkLabel = isOriginal  ? 'Open original source'
+                    : isSecondary ? 'Open secondary source'
+                    :               'Open source';
+    primaryLinkHtml = `
+      <a class="source-link mt4" href="${readUrl}" target="_blank" rel="noreferrer">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        ${linkLabel}</a>`;
+  } else if (needsLink) {
+    primaryLinkHtml = `
+      <div class="no-link-warning">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        Gemini reported reading the source but did not provide a link — treat verdict as unverified.
+      </div>`;
+  } else if (a.source_url) {
+    primaryLinkHtml = `
+      <a class="source-link mt4" href="${a.source_url}" target="_blank" rel="noreferrer">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        Open ${esc(sourceLabel(a.source_name))}</a>`;
+  } else {
+    primaryLinkHtml = `<span class="source-note">${esc(sourceLabel(a.source_name))}</span>`;
+  }
+
+  // Other pages Gemini visited (deduplicated from the primary link)
+  const otherSources = (llm.grounding_sources || [])
+    .filter(s => isValidUrl(s?.uri) && s.uri !== readUrl);
+  const otherHtml = otherSources.length
+    ? `<div class="mt8">
+        <div class="section-title">Other pages consulted by Gemini</div>
+        <div class="sources-list mt4">
+          ${otherSources.map(s =>
             `<a class="source-link secondary" href="${esc(s.uri)}" target="_blank" rel="noreferrer">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               ${esc(s.title || s.uri)}</a>`
           ).join('')}
         </div>
@@ -1165,19 +1290,20 @@ function makeAuthCard(a, idx, ri) {
         ${ruleBadge}
         <span class="auth-text">${esc(a.text)}</span>
       </div>
-      <div class="cit-verdicts" style="gap:4px">
-        ${verdictPill(propV,'prop')}${srcPill}
+      <div class="cit-verdicts" style="gap:4px;align-items:center">
+        ${verdictPill(propV,'prop')}${srcPill}${headerLinkHtml}
       </div>
       <button class="copy-btn" title="Copy citation" onclick="event.stopPropagation();copyText('${esc(a.text).replace(/'/g,"\\'")}')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
       </button>
       <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
     </div>
-    <div class="auth-body">
+    <div class="auth-body" style="display:none">
 
       <div class="basis-banner ${basisCls}">
         <span class="basis-icon">${basisIcon}</span>
-        <div><span class="basis-label">Compared against: ${basisLabel}.</span>${basisDesc ? ' ' + esc(basisDesc) : ''}</div>
+        <div style="flex:1"><span class="basis-label">Compared against: ${basisLabel}.</span>${basisDesc ? ' ' + esc(basisDesc) : ''}</div>
+        ${basisLinkHtml}
       </div>
 
       <div class="check-row">
@@ -1208,59 +1334,6 @@ function makeAuthCard(a, idx, ri) {
         ${llm.confidence ? `<div class="conf">Confidence: ${llm.confidence}</div>` : ''}
       </div>` : ''}
 
-      ${(() => {
-        // The URL Gemini actually read — required when it claims original/secondary source
-        const readUrl = llm.source_url_read
-          || (llm.grounding_sources && llm.grounding_sources[0]?.uri)
-          || null;
-
-        const isOriginal   = basis === 'original_source';
-        const isSecondary  = basis === 'secondary_source';
-        const needsLink    = isOriginal || isSecondary;
-
-        // Primary source link block
-        let primaryLinkHtml = '';
-        if (readUrl) {
-          const linkLabel = isOriginal  ? 'Open original source'
-                          : isSecondary ? 'Open secondary source'
-                          : 'Open source';
-          primaryLinkHtml = `
-            <a class="source-link mt4" href="${esc(readUrl)}" target="_blank" rel="noreferrer">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              ${linkLabel}</a>`;
-        } else if (needsLink) {
-          // Gemini claimed it read a source but provided no URL — flag this
-          primaryLinkHtml = `
-            <div class="no-link-warning">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              Gemini reported reading the source but did not provide a link — treat verdict as unverified.
-            </div>`;
-        } else if (a.source_url) {
-          primaryLinkHtml = `
-            <a class="source-link mt4" href="${a.source_url}" target="_blank" rel="noreferrer">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              Open ${esc(sourceLabel(a.source_name))}</a>`;
-        } else {
-          primaryLinkHtml = `<span class="source-note">${esc(sourceLabel(a.source_name))}</span>`;
-        }
-
-        // Additional pages Gemini visited (excluding the primary one already shown)
-        const otherSources = (llm.grounding_sources || [])
-          .filter(s => s.uri !== readUrl);
-        const otherHtml = otherSources.length
-          ? `<div class="mt8">
-              <div class="section-title">Other pages read by Gemini</div>
-              <div class="sources-list mt4">
-                ${otherSources.map(s =>
-                  `<a class="source-link secondary" href="${esc(s.uri)}" target="_blank" rel="noreferrer">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                    ${esc(s.title || s.uri)}</a>`
-                ).join('')}
-              </div>
-            </div>`
-          : '';
-
-        return `
       <div class="mt12">
         <div class="section-title">Source read by Gemini</div>
         ${primaryLinkHtml}
@@ -1274,16 +1347,28 @@ function makeAuthCard(a, idx, ri) {
               ? `<div class="source-snippet mt8">${esc(a.source_snippet)}</div>`
               : '')}
         ${otherHtml}
-      </div>`;
-      })()}
+      </div>
 
     </div>`;
   return div;
 }
 
-// ── Copy to clipboard ──────────────────────────────
+// ── Copy to clipboard with toast ──────────────────
+let _toastTimer;
 function copyText(text) {
-  navigator.clipboard.writeText(text).catch(() => {});
+  navigator.clipboard.writeText(text).then(() => {
+    clearTimeout(_toastTimer);
+    let toast = document.getElementById('copy-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'copy-toast';
+      toast.className = 'copy-toast';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = 'Citation copied!';
+    toast.classList.add('show');
+    _toastTimer = setTimeout(() => toast.classList.remove('show'), 1600);
+  }).catch(() => {});
 }
 
 function toggleAuthCard(header) {
@@ -1364,6 +1449,7 @@ function reset() {
   document.getElementById('alert-box').innerHTML = '';
   document.getElementById('ai-status').hidden = true;
   document.getElementById('export-btn').hidden = true;
+  document.getElementById('jump-issue-btn').hidden = true;
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
   document.querySelector('[data-filter="all"]').classList.add('active');
   updateRunBtn();
