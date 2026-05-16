@@ -389,7 +389,16 @@ main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
   background:var(--slate);color:#fff;border-radius:4px;
   padding:1px 7px;font-size:11px;font-weight:700;flex-shrink:0;margin-top:2px;
 }
-.auth-text{flex:1;font-size:12.5px;color:var(--text);line-height:1.5;word-break:break-word}
+.auth-text{font-size:12.5px;color:var(--text);line-height:1.5;word-break:break-word}
+.auth-meta{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}
+.rule-badge{
+  display:inline-flex;align-items:center;gap:4px;
+  background:var(--brand-light);color:var(--brand);
+  border:1px solid #bfdbfe;border-radius:4px;
+  padding:1px 7px;font-size:10px;font-weight:700;
+  letter-spacing:.2px;width:fit-content;
+}
+.rule-badge.rule-unknown{background:#f8fafc;color:var(--text-3);border-color:var(--border)}
 .auth-body{
   padding:13px 15px;border-top:1px solid var(--border);
   display:flex;flex-direction:column;gap:0;
@@ -1068,11 +1077,18 @@ function makeAuthCard(a, idx, ri) {
   div.id = `auth-${ri}-${ai}`;
   div.style.cssText = `border-left:3px solid ${borderCol}`;
 
+  const ruleBadge = a.bluebook_rule
+    ? `<span class="rule-badge${a.citation_type === 'unknown' ? ' rule-unknown' : ''}" title="${esc(a.bluebook_rule_desc || '')}">${esc(a.bluebook_rule)} · ${esc(a.bluebook_rule_desc || '')}</span>`
+    : `<span class="rule-badge rule-unknown">Unrecognised format</span>`;
+
   if (!a.llm) {
     div.innerHTML = `
       <div class="auth-header">
         <span class="auth-num">${idx}</span>
-        <span class="auth-text">${esc(a.text)}</span>
+        <div class="auth-meta">
+          ${ruleBadge}
+          <span class="auth-text">${esc(a.text)}</span>
+        </div>
         <div class="cit-verdicts"><span class="checking-pill">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
       </div>`;
     return div;
@@ -1105,7 +1121,10 @@ function makeAuthCard(a, idx, ri) {
   div.innerHTML = `
     <div class="auth-header" onclick="toggleAuthCard(this)">
       <span class="auth-num">${idx}</span>
-      <span class="auth-text">${esc(a.text)}</span>
+      <div class="auth-meta">
+        ${ruleBadge}
+        <span class="auth-text">${esc(a.text)}</span>
+      </div>
       <div class="cit-verdicts" style="gap:4px">
         ${verdictPill(propV,'prop')}${srcPill}
       </div>

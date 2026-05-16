@@ -55,6 +55,41 @@ check(r5.year == "1971", f"BOOK: year='{r5.year}'")
 r6 = cp.parse("not a citation at all")
 check(r6.citation_type == cp.CitationType.UNKNOWN, "UNKNOWN: unrecognised text")
 
+# New types
+r7 = cp.parse("Id. at 445")
+check(r7.citation_type == cp.CitationType.ID, "ID: 'Id. at 445' detected")
+check(r7.bluebook_rule == "Rule 4.1", f"ID: rule='{r7.bluebook_rule}'")
+
+r8 = cp.parse("Id.")
+check(r8.citation_type == cp.CitationType.ID, "ID: bare 'Id.' detected")
+
+r9 = cp.parse("Smith, supra note 5, at 42")
+check(r9.citation_type == cp.CitationType.SUPRA, "SUPRA: 'Smith, supra note 5' detected")
+check(r9.supra_note == "5", f"SUPRA: note='{r9.supra_note}'")
+check(r9.bluebook_rule == "Rule 4.2", f"SUPRA: rule='{r9.bluebook_rule}'")
+
+r10 = cp.parse("U.S. Const. amend. XIV, § 1")
+check(r10.citation_type == cp.CitationType.CONSTITUTION, "CONST: U.S. Const. amend. XIV detected")
+check(r10.bluebook_rule == "Rule 11", f"CONST: rule='{r10.bluebook_rule}'")
+
+r11 = cp.parse("Restatement (Second) of Contracts § 71 (1981)")
+check(r11.citation_type == cp.CitationType.RESTATEMENT, "RESTATEMENT: detected")
+check(r11.bluebook_rule == "Rule 12.9.4", f"RESTATEMENT: rule='{r11.bluebook_rule}'")
+
+r12 = cp.parse("Model Penal Code § 2.02 (Official Draft 1962)")
+check(r12.citation_type == cp.CitationType.RESTATEMENT, "RESTATEMENT: Model Penal Code detected")
+
+r13 = cp.parse("H.R. 1234, 117th Cong. § 2 (2021)")
+check(r13.citation_type == cp.CitationType.LEGISLATIVE, "LEGISLATIVE: H.R. bill detected")
+check(r13.bluebook_rule == "Rule 13", f"LEGISLATIVE: rule='{r13.bluebook_rule}'")
+
+r14 = cp.parse("S. Rep. No. 103-7, at 10 (1993)")
+check(r14.citation_type == cp.CitationType.LEGISLATIVE, "LEGISLATIVE: Senate report detected")
+
+r15 = cp.parse("Miranda, 384 U.S. at 444")
+check(r15.citation_type == cp.CitationType.SHORT_CASE, "SHORT_CASE: 'Miranda, 384 U.S. at 444' detected")
+check(r15.pincite == "444", f"SHORT_CASE: pincite='{r15.pincite}'")
+
 # ── Bluebook tests ─────────────────────────────────────────────────────────────
 
 print("\n── Bluebook Validator ───────────────────────────")

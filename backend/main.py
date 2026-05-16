@@ -153,12 +153,14 @@ def _process_one(item: dict) -> dict:
         parsed      = cp.parse(auth_text)
         source_info = _fetch_source(parsed)
         auth_results[idx] = {
-            "text":          auth_text,
-            "citation_type": parsed.citation_type,
-            "source_name":   source_info.get("source"),
-            "source_url":    source_info.get("url"),
-            "source_note":   source_info.get("note"),
-            "source_snippet":source_info.get("snippet"),
+            "text":               auth_text,
+            "citation_type":      parsed.citation_type,
+            "bluebook_rule":      parsed.bluebook_rule,
+            "bluebook_rule_desc": parsed.bluebook_rule_desc,
+            "source_name":        source_info.get("source"),
+            "source_url":         source_info.get("url"),
+            "source_note":        source_info.get("note"),
+            "source_snippet":     source_info.get("snippet"),
         }
 
     threads = [
@@ -182,7 +184,8 @@ def _process_one(item: dict) -> dict:
 
 def _fetch_source(parsed: cp.ParsedCitation) -> dict:
     try:
-        if parsed.citation_type == cp.CitationType.CASE:
+        # ── Types with external source lookup ──────────────────────────────
+        if parsed.citation_type in (cp.CitationType.CASE, cp.CitationType.SHORT_CASE):
             return fetch_case(
                 parties  = parsed.parties or "",
                 volume   = parsed.volume or "",
@@ -216,6 +219,82 @@ def _fetch_source(parsed: cp.ParsedCitation) -> dict:
                 year    = parsed.year,
                 edition = parsed.edition,
             )
+
+        # ── Types with well-known public URLs ──────────────────────────────
+        if parsed.citation_type == cp.CitationType.CONSTITUTION:
+            is_us = (parsed.title or "").upper().startswith("U.S")
+            url = (
+                "https://constitution.congress.gov/"
+                if is_us else
+                "https://www.law.cornell.edu/constitution"
+            )
+            return {
+                "source": "constitution",
+                "url": url,
+                "snippet": None,
+                "full_text_available": False,
+                "note": (
+                    "U.S. Constitution — full text at constitution.congress.gov. "
+                    "Gemini will search for the specific provision."
+                    if is_us else
+                    f"{parsed.title} Constitution — Gemini will search for the full text."
+                ),
+            }
+
+        if parsed.citation_type == cp.CitationType.LEGISLATIVE:
+            return {
+                "source": "legislative",
+                "url": "https://www.congress.gov/",
+                "snippet": None,
+                "full_text_available": False,
+                "note": (
+                    "Legislative material (bill, report, or record). "
+                    "Search congress.gov for the full text. "
+                    "Gemini will attempt to locate the specific document."
+                ),
+            }
+
+        # ── Short-form citations — accuracy depends on the cited prior source ──
+        if parsed.citation_type == cp.CitationType.ID:
+            pin = f" at {parsed.pincite}" if parsed.pincite else ""
+            return {
+                "source": "id_citation",
+                "url": None,
+                "snippet": None,
+                "full_text_available": False,
+                "note": (
+                    f"Id.{pin} — short form referring to the immediately preceding authority "
+                    "(Bluebook Rule 4.1). Accuracy depends on that prior source."
+                ),
+            }
+
+        if parsed.citation_type == cp.CitationType.SUPRA:
+            ref = f"note {parsed.supra_note}" if parsed.supra_note else "a prior citation"
+            who = f"{parsed.supra_author}, " if parsed.supra_author else ""
+            return {
+                "source": "supra_citation",
+                "url": None,
+                "snippet": None,
+                "full_text_available": False,
+                "note": (
+                    f"{who}supra {ref} — cross-reference to an earlier citation "
+                    "(Bluebook Rule 4.2). Accuracy depends on the source cited there."
+                ),
+            }
+
+        if parsed.citation_type == cp.CitationType.RESTATEMENT:
+            return {
+                "source": "restatement",
+                "url": "https://www.ali.org/publications/",
+                "snippet": None,
+                "full_text_available": False,
+                "note": (
+                    "Restatement or Model Code (Bluebook Rule 12.9.4). "
+                    "Full text available via Westlaw, LexisNexis, or the ALI website. "
+                    "Gemini will search for the specific section."
+                ),
+            }
+
     except Exception as exc:
         return {
             "source": "error", "url": None, "snippet": None,
@@ -227,9 +306,8 @@ def _fetch_source(parsed: cp.ParsedCitation) -> dict:
         "source": "unrecognised", "url": None, "snippet": None,
         "full_text_available": False,
         "note": (
-            "Citation format not automatically recognised. "
-            "Gemini will still evaluate accuracy based on the footnote text alone, "
-            "but cannot compare against a retrieved source."
+            "Citation format not matched to any Bluebook rule pattern. "
+            "Gemini will use Google Search to find the source directly."
         ),
     }
 
