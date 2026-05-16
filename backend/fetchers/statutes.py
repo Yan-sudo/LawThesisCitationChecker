@@ -9,8 +9,9 @@ import json
 import urllib.request
 import urllib.parse
 
-USCODE_VIEW = "https://uscode.house.gov/view.xhtml"
-ECFR_VIEW   = "https://www.ecfr.gov/current/title-{title}/section-{section}"
+# Cornell Law has stable, deep-linkable section URLs that work reliably
+CORNELL_USC  = "https://www.law.cornell.edu/uscode/text/{title}/{section}"
+ECFR_VIEW    = "https://www.ecfr.gov/current/title-{title}/section-{section}"
 
 HEADERS = {"User-Agent": "LawCitationChecker/1.0 (academic research)"}
 TIMEOUT = 15
@@ -31,11 +32,12 @@ def fetch_statute(title: str, code: str, section: str, year: str = None) -> dict
 
 def _fetch_usc(title: str, section: str) -> dict:
     sec = section.lstrip("§").strip()
-    view_url = f"{USCODE_VIEW}?{urllib.parse.urlencode({'req': f'{title} usc {sec}'})}"
+    # Cornell Law provides stable, directly linkable section pages
+    view_url = CORNELL_USC.format(title=title, section=urllib.parse.quote(sec, safe=""))
     try:
         html = _get_html(view_url)
     except Exception as exc:
-        return _error(str(exc), "U.S. House USCODE")
+        return _error(str(exc), "Cornell Law USC")
 
     snippet = _extract_snippet(html, sec)
     if not snippet:
@@ -45,7 +47,7 @@ def _fetch_usc(title: str, section: str) -> dict:
             "snippet": None,
             "full_text_available": False,
             "note": (
-                f"{title} U.S.C. § {sec} was not found in the House USCODE database. "
+                f"{title} U.S.C. § {sec} was not found at law.cornell.edu. "
                 "Verify the title and section number, or check Westlaw / LexisNexis."
             ),
         }
@@ -78,12 +80,16 @@ def _fetch_ecfr(title: str, section: str) -> dict:
 def _extract_snippet(html: str, section: str) -> str:
     text = re.sub(r"<[^>]+>", " ", html)
     text = re.sub(r"\s{2,}", " ", text)
-    # Capture from the section marker to the next section marker or end
+    # Cornell Law wraps the statutory text in labelled sections — look for it broadly
     m = re.search(
-        rf"§\s*{re.escape(section)}\b(.*?)(?=§\s*\d|\Z)",
-        text, re.DOTALL
+        rf"§\s*{re.escape(section)}\b(.*?)(?=§\s*\d+[a-z\-]*\.?\s|\Z)",
+        text, re.DOTALL | re.IGNORECASE
     )
-    return m.group(0).strip() if m else ""
+    if m:
+        return m.group(0).strip()[:3000]
+    # Fallback: return first 2000 chars of readable text (after nav/header noise)
+    clean = re.sub(r"\s{3,}", "\n", text).strip()
+    return clean[:2000] if len(clean) > 200 else ""
 
 
 def _error(msg: str, source: str) -> dict:

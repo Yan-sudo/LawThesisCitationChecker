@@ -835,7 +835,7 @@ async function runCheck() {
   await limitedMap(allAuthorities, 3, async ({ r, a, ri, ai }) => {
     try {
       a.llm = await withRetry(() =>
-        callGemini(key, r.sentence, a.text, a.source_snippet, a.source_name)
+        callGemini(key, r.sentence, a.text, a.source_snippet, a.source_name, a.source_url)
       );
     } catch (e) {
       a.llm = {
@@ -970,9 +970,13 @@ function urlReliability(url) {
 }
 
 // ── Gemini call ────────────────────────────────────
-async function callGemini(apiKey, sentence, footnoteText, sourceSnippet, sourceName) {
+async function callGemini(apiKey, sentence, footnoteText, sourceSnippet, sourceName, sourceUrl) {
   const snippetBlock = sourceSnippet
     ? `\nPRE-FETCHED EXCERPT (${sourceName || 'database'}):\n${sourceSnippet}\n`
+    : '';
+
+  const serverUrlBlock = (sourceUrl && isValidUrl(sourceUrl) && !isSearchUrl(sourceUrl))
+    ? `\nSERVER-FOUND URL: ${sourceUrl}\n`
     : '';
 
   const prompt = `You are a legal citation accuracy checker. Your verdict must be grounded in text you can directly quote from the source — never from inference or general knowledge.
@@ -982,18 +986,20 @@ PROPOSITION (what the author claims this source supports):
 
 CITED AUTHORITY:
 """${footnoteText}"""
-${snippetBlock}
+${serverUrlBlock}${snippetBlock}
 ══════════════════════════════════════════
 STEP 1 — FIND THE EXACT DOCUMENT
-
+${serverUrlBlock ? `
+The server has already located this document. START by navigating to the SERVER-FOUND URL above. Read the actual document at that URL. Only search for an alternative if that URL returns a 404 or is clearly wrong.
+` : `
 Search for the specific document using its identifying information:
 • Case (e.g. 384 U.S. 436): search "[parties] [volume] [reporter] [page] full opinion" → navigate to the actual court opinion on CourtListener, Justia, or the court's own site. Do NOT stop at a case summary.
-• Statute (e.g. 42 U.S.C. § 1983): search "42 USC 1983 text" → find the statutory text on law.cornell.edu or uscode.house.gov.
+• Statute (e.g. 42 U.S.C. § 1983): navigate to law.cornell.edu/uscode/text/[title]/[section] directly.
 • Article: search the exact title + author + journal → find the article on SSRN, HeinOnline, or the journal's website.
 • Agency order (e.g. CFTC Docket No. 22-09): search the exact docket or release number → navigate to the specific order page on the agency's site, not the enforcement actions index.
 • Book: search title + author + edition → find a page or preview showing the cited page number.
 
-Navigate past index pages and search results to reach the document itself.
+Navigate past index pages and search results to reach the document itself.`}
 
 STEP 2 — LOCATE AND QUOTE THE PASSAGE
 
@@ -1071,18 +1077,24 @@ Respond ONLY with valid JSON — no markdown fences, no commentary:
   const candidateFromRead     = (isValidUrl(rawReadUrl) && !isSearchUrl(rawReadUrl)) ? rawReadUrl : null;
   const specificFromGrounding = groundingSources.find(s => isValidUrl(s.uri) && !isSearchUrl(s.uri) && !isGenericUrl(s.uri))?.uri || null;
   const genericFromGrounding  = groundingSources.find(s => isValidUrl(s.uri) && !isSearchUrl(s.uri))?.uri || null;
+  // Server-side fetcher URL passed in as sourceUrl argument — reliable fallback
+  const serverUrl = (isValidUrl(sourceUrl) && !isSearchUrl(sourceUrl)) ? sourceUrl : null;
 
-  // Prefer a specific document URL over a generic index page.
-  // If Gemini gave us a specific URL, use it; if it's generic, try the grounding sources first.
+  // Priority: specific Gemini URL > specific grounding URL > generic Gemini URL >
+  //           generic grounding URL > server fetcher URL (authoritative but may be paywalled)
   let resolvedUrl;
   if (candidateFromRead && !isGenericUrl(candidateFromRead)) {
-    resolvedUrl = candidateFromRead;              // specific URL from model output
+    resolvedUrl = candidateFromRead;
   } else if (specificFromGrounding) {
-    resolvedUrl = specificFromGrounding;          // specific URL from grounding metadata
+    resolvedUrl = specificFromGrounding;
   } else if (candidateFromRead) {
-    resolvedUrl = candidateFromRead;              // generic model URL — keep but flag
+    resolvedUrl = candidateFromRead;
+  } else if (genericFromGrounding) {
+    resolvedUrl = genericFromGrounding;
+  } else if (serverUrl && !isGenericUrl(serverUrl)) {
+    resolvedUrl = serverUrl;                      // server-found URL as last reliable fallback
   } else {
-    resolvedUrl = genericFromGrounding || null;   // generic grounding URL — last resort
+    resolvedUrl = serverUrl || null;
   }
 
   result.source_url_is_generic = resolvedUrl ? isGenericUrl(resolvedUrl) : false;
