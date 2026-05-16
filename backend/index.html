@@ -417,6 +417,7 @@ main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
 .src-rel-high  {background:var(--green-bg);color:#14532d;border:1px solid var(--green-border)}
 .src-rel-medium{background:#f1f5f9;color:var(--slate);border:1px solid var(--slate-border)}
 .src-rel-low   {background:var(--amber-bg);color:#78350f;border:1px solid var(--amber-border)}
+.auth-src-bar-warn{background:#fffbeb;border-top-color:var(--amber-border)}
 .auth-header{
   display:flex;align-items:flex-start;gap:10px;
   padding:10px 14px;cursor:pointer;user-select:none;
@@ -920,6 +921,33 @@ function urlDomain(url) {
   catch { return ''; }
 }
 
+// Returns true when the URL looks like a homepage or section index —
+// not a page that contains the specific cited document.
+// e.g. cftc.gov/LawRegulation/EnforcementActions/index.htm → true
+//      cftc.gov/LawRegulation/EnforcementActions/2022/enf012022 → false
+function isGenericUrl(url) {
+  if (!isValidUrl(url)) return false;
+  try {
+    const path = new URL(url).pathname.replace(/\/+$/, '') || '/';
+    // Bare domain root
+    if (path === '/') return true;
+    // Common index / home filenames
+    if (/\/(index|home|default|main|landing)(\.html?|\.aspx|\.php)?$/i.test(path)) return true;
+    // Short paths with ≤ 2 segments are usually section pages, not documents
+    const segs = path.split('/').filter(Boolean);
+    if (segs.length <= 1) return true;
+    // Known generic pre-fetcher stub URLs the Python server inserts for unresolvable types
+    const STUBS = [
+      '/LawRegulation/EnforcementActions/index.htm',
+      '/publications/',
+      '/publications',
+      '/app/apikey',
+    ];
+    if (STUBS.some(s => path.startsWith(s) || path === s.replace(/\/$/, ''))) return true;
+    return false;
+  } catch { return false; }
+}
+
 // Classifies a URL's likely reliability for legal citation purposes.
 // Returns 'high' | 'medium' | 'low'.
 function urlReliability(url) {
@@ -1019,12 +1047,28 @@ RULE: comparison_basis may only be "original_source" or "secondary_source" when 
   result.grounding_sources = groundingSources;
 
   // ── Hard enforcement: a source claim must be backed by a real, non-search URL.
-  // Gemini sometimes returns "null" (string), "N/A", search pages, or other bad values.
+  // Gemini sometimes returns "null" (string), "N/A", search pages, or index pages.
   const rawReadUrl = typeof result.source_url_read === 'string'
     ? result.source_url_read.trim() : null;
-  const resolvedUrl = (isValidUrl(rawReadUrl) && !isSearchUrl(rawReadUrl) ? rawReadUrl : null)
-    || groundingSources.find(s => isValidUrl(s.uri) && !isSearchUrl(s.uri))?.uri
-    || null;
+
+  const candidateFromRead     = (isValidUrl(rawReadUrl) && !isSearchUrl(rawReadUrl)) ? rawReadUrl : null;
+  const specificFromGrounding = groundingSources.find(s => isValidUrl(s.uri) && !isSearchUrl(s.uri) && !isGenericUrl(s.uri))?.uri || null;
+  const genericFromGrounding  = groundingSources.find(s => isValidUrl(s.uri) && !isSearchUrl(s.uri))?.uri || null;
+
+  // Prefer a specific document URL over a generic index page.
+  // If Gemini gave us a specific URL, use it; if it's generic, try the grounding sources first.
+  let resolvedUrl;
+  if (candidateFromRead && !isGenericUrl(candidateFromRead)) {
+    resolvedUrl = candidateFromRead;              // specific URL from model output
+  } else if (specificFromGrounding) {
+    resolvedUrl = specificFromGrounding;          // specific URL from grounding metadata
+  } else if (candidateFromRead) {
+    resolvedUrl = candidateFromRead;              // generic model URL — keep but flag
+  } else {
+    resolvedUrl = genericFromGrounding || null;   // generic grounding URL — last resort
+  }
+
+  result.source_url_is_generic = resolvedUrl ? isGenericUrl(resolvedUrl) : false;
 
   // Rule 1: any claim of reading a source (original or secondary) requires a real URL.
   if (!resolvedUrl &&
@@ -1316,18 +1360,21 @@ function makeAuthCard(a, idx, ri) {
   const basisPillCls = isOriginal  ? 'basis-pill-original'
                      : isSecondary ? 'basis-pill-secondary'
                      :               'basis-pill-footnote';
+  const urlIsGeneric = !!(llm.source_url_is_generic);
+
   let srcBarHtml = '';
   if (readUrl) {
-    const rel      = urlReliability(readUrl);
+    const rel      = urlIsGeneric ? 'low' : urlReliability(readUrl);
     const domain   = urlDomain(readUrl);
-    const relLabel = rel === 'high'   ? '✓ Authoritative'
+    const relLabel = urlIsGeneric     ? '⚠ General page — not the specific document'
+                   : rel === 'high'   ? '✓ Authoritative'
                    : rel === 'low'    ? '⚠ Verify source'
                    :                    'Unverified domain';
     const relCls   = `src-rel-${rel}`;
-    const linkLabel = isOriginal ? 'Open original source'
+    const linkLabel = isOriginal  ? 'Open original source'
                     : isSecondary ? 'Open secondary source'
-                    : 'Open source read by Gemini';
-    srcBarHtml = `<div class="auth-src-bar">
+                    :               'Open source read by Gemini';
+    srcBarHtml = `<div class="auth-src-bar${urlIsGeneric ? ' auth-src-bar-warn' : ''}">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;color:var(--accent)"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
       <a href="${esc(readUrl)}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">
         ${linkLabel}<span class="src-domain">${esc(domain)}</span>
