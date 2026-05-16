@@ -969,83 +969,152 @@ function urlReliability(url) {
   return 'medium';
 }
 
-// ── Gemini call ────────────────────────────────────
+// ── Gemini call ────────────────────────────────────────────────────────────────
+//
+// Two modes depending on whether we have substantial source text:
+//
+// TEXT MODE  (sourceSnippet ≥ 300 chars)
+//   • Gemini reads the provided text — no Google Search tool
+//   • Eliminates wrong-document hallucinations and fabricated URLs entirely
+//   • Quote is verified client-side: must appear verbatim in the provided text
+//
+// SEARCH MODE  (no substantial text)
+//   • Gemini searches the web with Google Search grounding
+//   • Directed to start at the server-found URL when available
+//
 async function callGemini(apiKey, sentence, footnoteText, sourceSnippet, sourceName, sourceUrl) {
-  const snippetBlock = sourceSnippet
-    ? `\nPRE-FETCHED EXCERPT (${sourceName || 'database'}):\n${sourceSnippet}\n`
-    : '';
+  const validServerUrl = (isValidUrl(sourceUrl) && !isSearchUrl(sourceUrl) && !isGenericUrl(sourceUrl))
+    ? sourceUrl : null;
+  const hasText   = sourceSnippet && sourceSnippet.length >= 300;
+  const srcLabel  = sourceName || 'database';
 
-  const serverUrlBlock = (sourceUrl && isValidUrl(sourceUrl) && !isSearchUrl(sourceUrl))
-    ? `\nSERVER-FOUND URL: ${sourceUrl}\n`
-    : '';
+  // ── Build prompt ──────────────────────────────────────────────────────────
+  let prompt, apiTools;
 
-  const prompt = `You are a legal citation accuracy checker. Your verdict must be grounded in text you can directly quote from the source — never from inference or general knowledge.
+  if (hasText) {
+    // TEXT MODE — Gemini analyses the text we provide, no web search
+    const urlInstruction = validServerUrl
+      ? `Set source_url_read to exactly: "${validServerUrl}"`
+      : `Set source_url_read to null (no URL available for this source).`;
+
+    prompt = `You are a legal citation accuracy checker.
 
 PROPOSITION (what the author claims this source supports):
 """${sentence || '(no main-text sentence extracted)'}"""
 
 CITED AUTHORITY:
 """${footnoteText}"""
-${serverUrlBlock}${snippetBlock}
+
+DOCUMENT TEXT — retrieved from ${srcLabel}${validServerUrl ? ` (${validServerUrl})` : ''}:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${sourceSnippet}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TASK
+
+Read the DOCUMENT TEXT above carefully. It is the actual content retrieved from ${srcLabel}.
+
+Step 1 — Find the passage in the DOCUMENT TEXT most relevant to the PROPOSITION.
+Step 2 — Copy it verbatim (minimum 10 words). This is your only permitted evidence.
+Step 3 — Judge: does that passage support the PROPOSITION?
+
+CRITICAL RULES:
+• relevant_quote MUST be a verbatim copy of text found in the DOCUMENT TEXT above — do NOT quote from your training data or general knowledge.
+• If no relevant passage exists in the provided excerpt (the excerpt may not cover the cited page), set relevant_quote to null and verdict to "Cannot verify" — do not fabricate.
+• ${urlInstruction}
+• comparison_basis MUST be "original_source".
+• "Supports" / "Does not support" requires relevant_quote ≥ 10 words copied from the text above.
+
+Respond ONLY with valid JSON — no markdown fences:
+{
+  "source_url_read": ${validServerUrl ? `"${validServerUrl}"` : 'null'},
+  "comparison_basis": "original_source",
+  "comparison_source_description": "Text retrieved from ${srcLabel}",
+  "relevant_quote": "Verbatim passage from the DOCUMENT TEXT (≥10 words), or null if not found",
+  "proposition_support": {
+    "verdict": "Supports | Does not support | Questionable | Cannot verify",
+    "explanation": "Quote the specific text and explain how it relates to the proposition. If Cannot verify, state which part of the document was checked and why it does not resolve the issue."
+  },
+  "parenthetical_accuracy": {"verdict": "Accurate | Inaccurate | No parenthetical | Cannot verify", "explanation": ""},
+  "pincite_accuracy": {"verdict": "Accurate | Inaccurate | No pincite | Cannot verify", "explanation": ""},
+  "overall": "One sentence: what the document says and what it means for this citation.",
+  "confidence": "High | Medium | Low"
+}`;
+    apiTools = undefined;  // No Google Search in text mode
+
+  } else {
+    // SEARCH MODE — Gemini searches the web
+    const serverBlock = validServerUrl
+      ? `\nSERVER-FOUND URL: ${validServerUrl}\nThe server has already located this document. Navigate to that URL first. Only search for an alternative if it returns 404 or is clearly the wrong document.\n`
+      : '';
+    const snippetBlock = sourceSnippet
+      ? `\nSHORT EXCERPT (${srcLabel}):\n${sourceSnippet}\n`
+      : '';
+
+    prompt = `You are a legal citation accuracy checker. Your verdict must be grounded in text you can directly quote — never from inference or general knowledge.
+
+PROPOSITION:
+"""${sentence || '(no main-text sentence extracted)'}"""
+
+CITED AUTHORITY:
+"""${footnoteText}"""
+${serverBlock}${snippetBlock}
 ══════════════════════════════════════════
 STEP 1 — FIND THE EXACT DOCUMENT
-${serverUrlBlock ? `
-The server has already located this document. START by navigating to the SERVER-FOUND URL above. Read the actual document at that URL. Only search for an alternative if that URL returns a 404 or is clearly wrong.
-` : `
-Search for the specific document using its identifying information:
-• Case (e.g. 384 U.S. 436): search "[parties] [volume] [reporter] [page] full opinion" → navigate to the actual court opinion on CourtListener, Justia, or the court's own site. Do NOT stop at a case summary.
-• Statute (e.g. 42 U.S.C. § 1983): navigate to law.cornell.edu/uscode/text/[title]/[section] directly.
-• Article: search the exact title + author + journal → find the article on SSRN, HeinOnline, or the journal's website.
-• Agency order (e.g. CFTC Docket No. 22-09): search the exact docket or release number → navigate to the specific order page on the agency's site, not the enforcement actions index.
-• Book: search title + author + edition → find a page or preview showing the cited page number.
-
+${validServerUrl ? '' : `
+• Case: search "[parties] [volume] [reporter] [page]" → go to the full opinion on CourtListener or Justia — NOT a case summary.
+• Statute: navigate directly to law.cornell.edu/uscode/text/[title]/[section].
+• Article: search exact title + author → find on SSRN, HeinOnline, or journal site.
+• Agency order: search exact docket or release number → navigate to the specific order page, not an index.
+• Book: search title + author + edition → find a preview showing the cited page.
 Navigate past index pages and search results to reach the document itself.`}
 
 STEP 2 — LOCATE AND QUOTE THE PASSAGE
 
-Once you have the document open:
-• If a pincite is cited (e.g. "at 444", "§ 2(b)"), jump to that specific page or section.
-• If a parenthetical is quoted (e.g. "(holding that…)"), find those exact words.
-• Copy verbatim the passage most relevant to the proposition. Minimum 10 words. This quote IS your evidence.
+• Jump to the pincite page/section if one is cited.
+• If a parenthetical is quoted, locate those exact words.
+• Copy verbatim ≥ 10 words that are most relevant to the proposition.
 
 STEP 3 — VERDICT FROM THE QUOTE
 
-Judge based only on what you quoted — not on what you know about the case generally:
-• "Supports": the quoted text directly and clearly supports the proposition.
-• "Does not support": the quoted text contradicts or fails to support the proposition.
-• "Questionable": the text is ambiguous, only partially supports it, or you had to rely on a summary rather than the original.
-• "Cannot verify": you could not find and quote the specific document.
+Judge only from what you quoted:
+• "Supports": quoted text clearly supports the proposition.
+• "Does not support": quoted text contradicts or fails to support it.
+• "Questionable": text is ambiguous or you used a summary rather than the original.
+• "Cannot verify": could not locate and quote the specific document.
 
 ══════════════════════════════════════════
-STRICT RULES — these override everything else:
+STRICT RULES:
+R1. relevant_quote = verbatim text from the document, or null → verdict = "Cannot verify".
+R2. source_url_read = specific document page URL, or null → comparison_basis = "footnote_only" → verdict = "Cannot verify".
+R3. comparison_basis "footnote_only" → verdict = "Cannot verify". No exceptions.
+R4. "Supports" / "Does not support" requires relevant_quote ≥ 10 words.
+R5. General index or homepage URL → comparison_basis = "secondary_source" at best.
 
-R1. relevant_quote must be verbatim text from the document — not a paraphrase, not a description. If you cannot produce a real quote, set it to null and verdict MUST be "Cannot verify".
-R2. source_url_read must be the URL of the specific page containing the quote — not a search page, not an index page. If null → comparison_basis MUST be "footnote_only" → verdict MUST be "Cannot verify".
-R3. comparison_basis "footnote_only" → verdict MUST be "Cannot verify". No exceptions.
-R4. verdict "Supports" or "Does not support" requires a non-null relevant_quote of at least 10 words.
-R5. If the URL you found is a general index or homepage (not the specific document page), use comparison_basis "secondary_source" at best.
-
-Respond ONLY with valid JSON — no markdown fences, no commentary:
+Respond ONLY with valid JSON — no markdown fences:
 {
-  "source_url_read": "URL of the specific document page where you found and read the quote, or null",
+  "source_url_read": "URL of the specific document page, or null",
   "comparison_basis": "original_source | secondary_source | footnote_only",
-  "comparison_source_description": "e.g. 'Court opinion at CourtListener, p.436' or 'Could not locate specific document'",
-  "relevant_quote": "Verbatim passage (≥10 words) from the document. This is the primary evidence. Null only if not found.",
+  "comparison_source_description": "e.g. 'Court opinion at CourtListener' or 'Could not locate document'",
+  "relevant_quote": "Verbatim passage (≥10 words), or null",
   "proposition_support": {
     "verdict": "Supports | Does not support | Questionable | Cannot verify",
-    "explanation": "Cite your quote and explain how it supports or contradicts the proposition. If Cannot verify, say exactly what you searched and why you could not locate the text."
+    "explanation": "Cite the quote and explain. If Cannot verify, state what you searched and why the text was not found."
   },
   "parenthetical_accuracy": {"verdict": "Accurate | Inaccurate | No parenthetical | Cannot verify", "explanation": ""},
   "pincite_accuracy": {"verdict": "Accurate | Inaccurate | No pincite | Cannot verify", "explanation": ""},
-  "overall": "One sentence: what you found and what it means for this citation.",
+  "overall": "One sentence summary.",
   "confidence": "High | Medium | Low"
 }`;
+    apiTools = [{ google_search: {} }];
+  }
 
+  // ── API call ──────────────────────────────────────────────────────────────
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
-    tools: [{ google_search: {} }],
-    generationConfig: { temperature: 0.1, maxOutputTokens: 2000 },
+    generationConfig: { temperature: 0.0, maxOutputTokens: 2500 },
   };
+  if (apiTools) body.tools = apiTools;
 
   const resp = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
@@ -1055,64 +1124,62 @@ Respond ONLY with valid JSON — no markdown fences, no commentary:
     const err = await resp.json().catch(() => ({}));
     throw new Error(err.error?.message || `Gemini error ${resp.status}`);
   }
-  const data = await resp.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const data    = await resp.json();
+  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-  // Only keep grounding sources with real, non-search URLs.
-  // filter(Boolean) is not enough — Gemini returns objects with missing/empty uri,
-  // and sometimes returns Google Search result pages which are not the actual source.
   const groundingSources = (data.candidates?.[0]?.groundingMetadata?.groundingChunks || [])
     .map(c => c.web).filter(s => s && isValidUrl(s.uri) && !isSearchUrl(s.uri));
 
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error(`No JSON in Gemini response: ${text.slice(0, 200)}`);
+  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error(`No JSON in Gemini response: ${rawText.slice(0, 200)}`);
   const result = JSON.parse(jsonMatch[0]);
-  result.grounding_sources = groundingSources;
+  result.grounding_sources  = groundingSources;
+  result._text_analysis     = hasText;  // flag for UI
 
-  // ── Hard enforcement: a source claim must be backed by a real, non-search URL.
-  // Gemini sometimes returns "null" (string), "N/A", search pages, or index pages.
+  // ── URL resolution ────────────────────────────────────────────────────────
   const rawReadUrl = typeof result.source_url_read === 'string'
     ? result.source_url_read.trim() : null;
 
+  const serverUrl             = (isValidUrl(sourceUrl) && !isSearchUrl(sourceUrl)) ? sourceUrl : null;
   const candidateFromRead     = (isValidUrl(rawReadUrl) && !isSearchUrl(rawReadUrl)) ? rawReadUrl : null;
   const specificFromGrounding = groundingSources.find(s => isValidUrl(s.uri) && !isSearchUrl(s.uri) && !isGenericUrl(s.uri))?.uri || null;
   const genericFromGrounding  = groundingSources.find(s => isValidUrl(s.uri) && !isSearchUrl(s.uri))?.uri || null;
-  // Server-side fetcher URL passed in as sourceUrl argument — reliable fallback
-  const serverUrl = (isValidUrl(sourceUrl) && !isSearchUrl(sourceUrl)) ? sourceUrl : null;
 
-  // Priority: specific Gemini URL > specific grounding URL > generic Gemini URL >
-  //           generic grounding URL > server fetcher URL (authoritative but may be paywalled)
   let resolvedUrl;
-  if (candidateFromRead && !isGenericUrl(candidateFromRead)) {
-    resolvedUrl = candidateFromRead;
-  } else if (specificFromGrounding) {
-    resolvedUrl = specificFromGrounding;
-  } else if (candidateFromRead) {
-    resolvedUrl = candidateFromRead;
-  } else if (genericFromGrounding) {
-    resolvedUrl = genericFromGrounding;
-  } else if (serverUrl && !isGenericUrl(serverUrl)) {
-    resolvedUrl = serverUrl;                      // server-found URL as last reliable fallback
+  if (hasText) {
+    // In text mode, the server URL is authoritative — we read that document
+    resolvedUrl = validServerUrl || candidateFromRead || serverUrl || null;
   } else {
-    resolvedUrl = serverUrl || null;
+    // In search mode, prefer the most specific URL Gemini found
+    if (candidateFromRead && !isGenericUrl(candidateFromRead)) {
+      resolvedUrl = candidateFromRead;
+    } else if (specificFromGrounding) {
+      resolvedUrl = specificFromGrounding;
+    } else if (candidateFromRead) {
+      resolvedUrl = candidateFromRead;
+    } else if (genericFromGrounding) {
+      resolvedUrl = genericFromGrounding;
+    } else {
+      resolvedUrl = serverUrl || null;
+    }
   }
-
   result.source_url_is_generic = resolvedUrl ? isGenericUrl(resolvedUrl) : false;
 
-  // Rule 1: any claim of reading a source (original or secondary) requires a real URL.
+  // ── Enforcement rules ─────────────────────────────────────────────────────
+
+  // Rule 1: source claim without a real URL → footnote_only + Cannot verify
   if (!resolvedUrl &&
       (result.comparison_basis === 'original_source' || result.comparison_basis === 'secondary_source')) {
     result.comparison_basis = 'footnote_only';
     result.comparison_source_description =
-      'Gemini did not provide a verifiable URL for the source it claimed to read — verdict downgraded to Cannot verify.';
+      'No verifiable URL — verdict downgraded to Cannot verify.';
     if (!result.proposition_support) result.proposition_support = {};
     result.proposition_support.verdict = 'Cannot verify';
     result.proposition_support.explanation =
-      '[No verifiable source URL returned] ' + (result.proposition_support.explanation || '');
+      '[No verifiable source URL] ' + (result.proposition_support.explanation || '');
   }
 
-  // Rule 2: footnote_only basis must never yield "Supports".
-  // Gemini sometimes ignores the prompt and returns "Supports" from citation text alone.
+  // Rule 2: footnote_only must never yield "Supports"
   if (result.comparison_basis === 'footnote_only' &&
       result.proposition_support?.verdict === 'Supports') {
     result.proposition_support.verdict = 'Cannot verify';
@@ -1121,27 +1188,56 @@ Respond ONLY with valid JSON — no markdown fences, no commentary:
       (result.proposition_support.explanation || '');
   }
 
-  // Rule 3: "Supports" or "Does not support" requires a real quote (≥5 words).
-  // Catches cases where Gemini returns a verdict but no actual passage.
+  // Rule 3: "Supports" / "Does not support" requires a real quote (≥5 words)
   {
     const v = result.proposition_support?.verdict;
     if (v === 'Supports' || v === 'Does not support') {
       const q = (result.relevant_quote || '').trim();
-      const wordCount = q ? q.split(/\s+/).filter(Boolean).length : 0;
-      if (wordCount < 5) {
+      if (q.split(/\s+/).filter(Boolean).length < 5) {
         if (!result.proposition_support) result.proposition_support = {};
         result.proposition_support.verdict = 'Cannot verify';
         result.proposition_support.explanation =
-          '[Verdict downgraded: a verbatim quote from the source is required to confirm or deny support] ' +
+          '[Verdict downgraded: a verbatim quote is required] ' +
           (result.proposition_support.explanation || '');
       }
     }
   }
 
-  // Always normalise source_url_read to the validated URL (or null)
-  result.source_url_read = resolvedUrl;
+  // Rule 4 (text mode only): quote must appear verbatim in the provided excerpt.
+  // Prevents Gemini from fabricating a plausible-sounding passage.
+  if (hasText && result.relevant_quote) {
+    if (!_quoteFoundInText(result.relevant_quote, sourceSnippet)) {
+      result.relevant_quote = null;
+      if (!result.proposition_support) result.proposition_support = {};
+      result.proposition_support.verdict = 'Cannot verify';
+      result.proposition_support.explanation =
+        '[Quote not found verbatim in provided document text — possible hallucination; ' +
+        'the relevant page may not be in the retrieved excerpt] ' +
+        (result.proposition_support.explanation || '');
+    }
+  }
 
+  result.source_url_read = resolvedUrl;
   return result;
+}
+
+// Returns true if a normalised probe from the quote exists in the text.
+// Normalises smart quotes, dashes, and whitespace before comparing.
+function _quoteFoundInText(quote, text) {
+  const norm = s => s
+    .replace(/[‘’ʼ]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—]/g, '-')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  const q = norm(quote);
+  const t = norm(text);
+  // Use a 25-char probe starting 10% into the quote (avoids leading ellipsis)
+  const start = Math.floor(q.length * 0.1);
+  const probe = q.slice(start, start + 25);
+  if (probe.length < 12) return true;  // too short to verify reliably
+  return t.includes(probe);
 }
 
 // ── Render results ─────────────────────────────────
@@ -1382,9 +1478,11 @@ function makeAuthCard(a, idx, ri) {
 
   const basis     = llm.comparison_basis || 'footnote_only';
   const basisDesc = llm.comparison_source_description || '';
+  const textMode = !!(llm._text_analysis);
+  const modeTag  = textMode ? ' · text analysis' : ' · web search';
   const [basisCls, basisIcon, basisLabel] =
-    basis === 'original_source'  ? ['basis-original',  '✔', 'Original source'] :
-    basis === 'secondary_source' ? ['basis-secondary', '⚠', 'Secondary source'] :
+    basis === 'original_source'  ? ['basis-original',  '✔', `Original source${modeTag}`] :
+    basis === 'secondary_source' ? ['basis-secondary', '⚠', `Secondary source${modeTag}`] :
                                    ['basis-footnote',   '✘', 'Source not found'];
 
   // Resolve URL Gemini actually read. Normalised to null if invalid (see callGemini).

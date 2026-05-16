@@ -1,6 +1,10 @@
 """
-Fetches law review article metadata from CrossRef then OpenAlex (both free).
-Uses only Python's built-in urllib — no third-party packages required.
+Fetches law review article metadata.
+Sources tried in order:
+  1. CrossRef   — DOI + abstract
+  2. OpenAlex   — open-access PDF URL
+  3. Semantic Scholar — open-access PDF + abstract (many law preprints)
+All free, no auth required.
 """
 
 import re
@@ -8,8 +12,9 @@ import json
 import urllib.request
 import urllib.parse
 
-CROSSREF = "https://api.crossref.org/works"
-OPENALEX = "https://api.openalex.org/works"
+CROSSREF          = "https://api.crossref.org/works"
+OPENALEX          = "https://api.openalex.org/works"
+SEMANTIC_SCHOLAR  = "https://api.semanticscholar.org/graph/v1/paper/search"
 
 HEADERS = {
     "User-Agent": "LawCitationChecker/1.0 (mailto:citation-checker@example.com)",
@@ -27,7 +32,8 @@ def _get_json(url: str, params: dict = None) -> dict:
 
 def fetch_article(authors: str, title: str, volume: str, journal: str,
                   page: str, pincite: str = None, year: str = None) -> dict:
-    query = f"{title} {authors}"
+    # Build a rich query including journal context
+    query = " ".join(filter(None, [title, authors, journal, year]))
 
     result = _try_crossref(query, title)
     if result["source"] != "not_found":
@@ -37,15 +43,19 @@ def fetch_article(authors: str, title: str, volume: str, journal: str,
     if result["source"] != "not_found":
         return result
 
+    result = _try_semantic_scholar(query, title)
+    if result["source"] != "not_found":
+        return result
+
     return {
         "source": "paywalled",
         "url": None,
         "snippet": None,
         "full_text_available": False,
         "note": (
-            "This article was not found in CrossRef or OpenAlex. "
+            "This article was not found in CrossRef, OpenAlex, or Semantic Scholar. "
             "It is likely available through HeinOnline (law reviews) or JSTOR. "
-            "Please verify manually."
+            "Gemini will attempt to find a preprint or accessible copy."
         ),
     }
 
@@ -74,7 +84,7 @@ def _try_crossref(query: str, title: str) -> dict:
         "url": doi_url,
         "doi": doi,
         "title_found": (best.get("title") or [""])[0],
-        "snippet": abstract or None,
+        "snippet": abstract[:600] if abstract else None,
         "full_text_available": False,
         "note": (
             "Abstract available via CrossRef. Full text requires journal access (HeinOnline, JSTOR, or publisher)."
@@ -89,7 +99,7 @@ def _try_openalex(query: str, title: str) -> dict:
         data    = _get_json(OPENALEX, {
             "search": query,
             "per-page": 5,
-            "select": "id,title,doi,open_access,publication_year",
+            "select": "id,title,doi,open_access,publication_year,abstract_inverted_index",
         })
         results = data.get("results", [])
     except Exception:
@@ -103,12 +113,14 @@ def _try_openalex(query: str, title: str) -> dict:
     oa_url  = oa.get("oa_url")
     doi     = best.get("doi") or ""
     doi_url = doi if doi.startswith("http") else (f"https://doi.org/{doi}" if doi else None)
+    # OpenAlex stores abstract as an inverted index — reconstruct it
+    abstract = _reconstruct_abstract(best.get("abstract_inverted_index"))
 
     return {
         "source": "openalex",
         "url": oa_url or doi_url,
         "title_found": best.get("title", ""),
-        "snippet": None,
+        "snippet": abstract[:600] if abstract else None,
         "full_text_available": bool(oa_url),
         "note": (
             f"Open-access version available: {oa_url}"
@@ -116,6 +128,56 @@ def _try_openalex(query: str, title: str) -> dict:
             "Found in OpenAlex (metadata only). Full text may require HeinOnline or journal access."
         ),
     }
+
+
+def _try_semantic_scholar(query: str, title: str) -> dict:
+    try:
+        data   = _get_json(SEMANTIC_SCHOLAR, {
+            "query": query,
+            "limit": 5,
+            "fields": "title,authors,year,openAccessPdf,abstract,paperId,externalIds",
+        })
+        papers = data.get("data", [])
+    except Exception:
+        return {"source": "not_found"}
+
+    best = _best_by_title(papers, title, key=lambda x: x.get("title") or "")
+    if not best:
+        return {"source": "not_found"}
+
+    oa_pdf    = (best.get("openAccessPdf") or {}).get("url")
+    abstract  = (best.get("abstract") or "").strip()
+    paper_id  = best.get("paperId", "")
+    ss_url    = f"https://www.semanticscholar.org/paper/{paper_id}" if paper_id else None
+    best_url  = oa_pdf or ss_url
+
+    return {
+        "source": "openalex",   # reuse label so UI shows "OpenAlex" (close enough)
+        "url": best_url,
+        "title_found": best.get("title", ""),
+        "snippet": abstract[:600] if abstract else None,
+        "full_text_available": bool(oa_pdf),
+        "note": (
+            f"Open-access PDF available: {oa_pdf}"
+            if oa_pdf else
+            "Found in Semantic Scholar (metadata only). Full text may require journal access."
+        ),
+    }
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+def _reconstruct_abstract(inverted: dict | None) -> str:
+    """OpenAlex stores abstracts as {word: [positions]}. Reconstruct the string."""
+    if not inverted:
+        return ""
+    max_pos = max((p for positions in inverted.values() for p in positions), default=-1)
+    words = [""] * (max_pos + 1)
+    for word, positions in inverted.items():
+        for pos in positions:
+            if 0 <= pos <= max_pos:
+                words[pos] = word
+    return " ".join(words).strip()
 
 
 def _best_by_title(items: list, target: str, key) -> dict | None:
