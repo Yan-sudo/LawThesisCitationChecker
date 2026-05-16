@@ -385,6 +385,28 @@ main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
   transition:box-shadow var(--transition);
 }
 .auth-card:hover{box-shadow:var(--shadow-sm)}
+
+/* ── Source bar — always visible, never collapsible ── */
+.auth-src-bar{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 14px;
+  border-top:1px solid var(--border);
+  background:#f0f7ff;
+}
+.auth-src-bar a{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:12.5px;font-weight:700;color:var(--accent);
+  text-decoration:none;flex:1;min-width:0;
+  word-break:break-all;
+}
+.auth-src-bar a:hover{text-decoration:underline}
+.auth-src-bar .basis-pill{
+  font-size:10.5px;font-weight:700;border-radius:5px;
+  padding:2px 8px;white-space:nowrap;flex-shrink:0;
+}
+.basis-pill-original {background:var(--green-bg);color:#14532d;border:1px solid var(--green-border)}
+.basis-pill-secondary{background:var(--amber-bg);color:#78350f;border:1px solid var(--amber-border)}
+.basis-pill-footnote {background:var(--slate-bg); color:var(--slate); border:1px solid var(--slate-border)}
 .auth-header{
   display:flex;align-items:flex-start;gap:10px;
   padding:10px 14px;cursor:pointer;user-select:none;
@@ -1220,16 +1242,14 @@ function makeAuthCard(a, idx, ri) {
     return div;
   }
 
-  const basis    = llm.comparison_basis || 'footnote_only';
+  const basis     = llm.comparison_basis || 'footnote_only';
   const basisDesc = llm.comparison_source_description || '';
   const [basisCls, basisIcon, basisLabel] =
     basis === 'original_source'  ? ['basis-original',  '✔', 'Original source'] :
     basis === 'secondary_source' ? ['basis-secondary', '⚠', 'Secondary source'] :
-                                   ['basis-footnote',   '✘', 'Source not found — footnote text only'];
+                                   ['basis-footnote',   '✘', 'Source not found'];
 
-  // Resolve the verified URL Gemini actually read.
-  // Hoist here so it can be used in BOTH the header and the body.
-  // source_url_read is normalised to null if not a valid URL (see callGemini).
+  // Resolve URL Gemini actually read. Normalised to null if invalid (see callGemini).
   const readUrl = (isValidUrl(llm.source_url_read) ? llm.source_url_read : null)
     || (llm.grounding_sources || []).find(s => isValidUrl(s?.uri))?.uri
     || null;
@@ -1238,50 +1258,43 @@ function makeAuthCard(a, idx, ri) {
   const isSecondary = basis === 'secondary_source';
   const needsLink   = isOriginal || isSecondary;
 
-  // Pre-fetcher database pill (shown in header)
+  // Pre-fetcher database pill (header)
   const srcPill = a.source_url
-    ? `<a class="vp vp-source" href="${a.source_url}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">${esc(sourceLabel(a.source_name))} ↗</a>`
+    ? `<a class="vp vp-source" href="${esc(a.source_url)}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">${esc(sourceLabel(a.source_name))} ↗</a>`
     : `<span class="vp vp-no-source">${esc(sourceLabel(a.source_name))}</span>`;
 
-  // Small "Source ↗" button in the auth header — always visible even when card is collapsed
-  const headerLinkHtml = readUrl
-    ? `<a class="header-src-btn" href="${esc(readUrl)}" target="_blank" rel="noreferrer"
-         onclick="event.stopPropagation()" title="Open source read by Gemini">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-        Source</a>`
-    : '';
+  // ── Always-visible source bar (not inside collapsible body) ──────────────
+  // Shown whenever Gemini visited a URL; cannot be hidden by toggling.
+  const basisPillCls = isOriginal ? 'basis-pill-original'
+                     : isSecondary ? 'basis-pill-secondary'
+                     : 'basis-pill-footnote';
+  const srcBarHtml = readUrl
+    ? `<div class="auth-src-bar">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;color:var(--accent)"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        <a href="${esc(readUrl)}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">
+          ${isOriginal ? 'Open original source' : isSecondary ? 'Open secondary source' : 'Open source read by Gemini'}
+        </a>
+        <span class="basis-pill ${basisPillCls}">${basisLabel}</span>
+      </div>`
+    : (needsLink
+        ? `<div class="auth-src-bar" style="background:var(--red-bg)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span style="font-size:12px;color:#7f1d1d">Gemini claimed to read the source but provided no URL — verdict downgraded to Cannot verify.</span>
+          </div>`
+        : '');
 
-  // "Open ↗" link embedded in the basis banner
-  const basisLinkHtml = readUrl
-    ? `<a class="basis-link" href="${esc(readUrl)}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">Open ↗</a>`
-    : '';
-
-  // Primary link block for the source section in the body
-  let primaryLinkHtml = '';
-  if (readUrl) {
-    const linkLabel = isOriginal  ? 'Open original source'
-                    : isSecondary ? 'Open secondary source'
-                    :               'Open source';
-    primaryLinkHtml = `
-      <a class="source-link mt4" href="${esc(readUrl)}" target="_blank" rel="noreferrer">
+  // Primary link in the expanded body (duplicate of src bar for easy access)
+  let primaryLinkHtml = readUrl
+    ? `<a class="source-link mt4" href="${esc(readUrl)}" target="_blank" rel="noreferrer">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-        ${linkLabel}</a>`;
-  } else if (needsLink) {
-    primaryLinkHtml = `
-      <div class="no-link-warning">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        Gemini reported reading the source but did not provide a link — treat verdict as unverified.
-      </div>`;
-  } else if (a.source_url) {
-    primaryLinkHtml = `
-      <a class="source-link mt4" href="${a.source_url}" target="_blank" rel="noreferrer">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-        Open ${esc(sourceLabel(a.source_name))}</a>`;
-  } else {
-    primaryLinkHtml = `<span class="source-note">${esc(sourceLabel(a.source_name))}</span>`;
-  }
+        ${isOriginal ? 'Open original source' : isSecondary ? 'Open secondary source' : 'Open source'}</a>`
+    : (a.source_url
+        ? `<a class="source-link mt4" href="${esc(a.source_url)}" target="_blank" rel="noreferrer">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Open ${esc(sourceLabel(a.source_name))}</a>`
+        : `<span class="source-note">${esc(sourceLabel(a.source_name))}</span>`);
 
-  // Other pages Gemini visited (deduplicated from the primary link)
+  // Other pages Gemini visited (deduplicated)
   const otherSources = (llm.grounding_sources || [])
     .filter(s => isValidUrl(s?.uri) && s.uri !== readUrl);
   const otherHtml = otherSources.length
@@ -1305,19 +1318,19 @@ function makeAuthCard(a, idx, ri) {
         <span class="auth-text">${esc(a.text)}</span>
       </div>
       <div class="cit-verdicts" style="gap:4px;align-items:center">
-        ${verdictPill(propV,'prop')}${srcPill}${headerLinkHtml}
+        ${verdictPill(propV,'prop')}${srcPill}
       </div>
       <button class="copy-btn" title="Copy citation" onclick="event.stopPropagation();copyText('${esc(a.text).replace(/'/g,"\\'")}')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
       </button>
       <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
     </div>
+    ${srcBarHtml}
     <div class="auth-body">
 
       <div class="basis-banner ${basisCls}">
         <span class="basis-icon">${basisIcon}</span>
         <div style="flex:1"><span class="basis-label">Compared against: ${basisLabel}.</span>${basisDesc ? ' ' + esc(basisDesc) : ''}</div>
-        ${basisLinkHtml}
       </div>
 
       <div class="check-row">
