@@ -397,9 +397,12 @@ main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
   display:inline-flex;align-items:center;gap:5px;
   font-size:12.5px;font-weight:700;color:var(--accent);
   text-decoration:none;flex:1;min-width:0;
-  word-break:break-all;
 }
 .auth-src-bar a:hover{text-decoration:underline}
+.src-domain{
+  font-size:11px;font-weight:400;color:var(--text-3);
+  margin-left:2px;white-space:nowrap;
+}
 .auth-src-bar .basis-pill{
   font-size:10.5px;font-weight:700;border-radius:5px;
   padding:2px 8px;white-space:nowrap;flex-shrink:0;
@@ -407,6 +410,13 @@ main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
 .basis-pill-original {background:var(--green-bg);color:#14532d;border:1px solid var(--green-border)}
 .basis-pill-secondary{background:var(--amber-bg);color:#78350f;border:1px solid var(--amber-border)}
 .basis-pill-footnote {background:var(--slate-bg); color:var(--slate); border:1px solid var(--slate-border)}
+.src-reliability{
+  font-size:10.5px;font-weight:600;border-radius:4px;
+  padding:1px 7px;white-space:nowrap;flex-shrink:0;
+}
+.src-rel-high  {background:var(--green-bg);color:#14532d;border:1px solid var(--green-border)}
+.src-rel-medium{background:#f1f5f9;color:var(--slate);border:1px solid var(--slate-border)}
+.src-rel-low   {background:var(--amber-bg);color:#78350f;border:1px solid var(--amber-border)}
 .auth-header{
   display:flex;align-items:flex-start;gap:10px;
   padding:10px 14px;cursor:pointer;user-select:none;
@@ -892,6 +902,44 @@ function isValidUrl(str) {
   return s.startsWith('http://') || s.startsWith('https://');
 }
 
+// ── URL safeguard helpers ──────────────────────────
+// Returns true for search-engine results pages — these are NEVER the actual source.
+function isSearchUrl(url) {
+  if (!isValidUrl(url)) return false;
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, '');
+    if (['google.com','bing.com','yahoo.com','duckduckgo.com','baidu.com'].includes(h)) return true;
+    if (url.includes('/search?') || url.includes('?q=')) return true;
+  } catch { /* fall through */ }
+  return false;
+}
+
+// Returns the bare hostname for display (strips www.).
+function urlDomain(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); }
+  catch { return ''; }
+}
+
+// Classifies a URL's likely reliability for legal citation purposes.
+// Returns 'high' | 'medium' | 'low'.
+function urlReliability(url) {
+  if (!url) return 'medium';
+  const domain = urlDomain(url);
+  if (!domain) return 'medium';
+  // Government and education domains are authoritative
+  if (domain.endsWith('.gov') || domain.endsWith('.edu')) return 'high';
+  // Known reliable legal databases
+  const HIGH = ['courtlistener.com','law.cornell.edu','scholar.google.com',
+    'law.justia.com','caselaw.findlaw.com','jstor.org','ssrn.com',
+    'heinonline.org','ali.org','finra.org','westlaw.com','lexisnexis.com',
+    'pacer.gov','courtlistener.com','oyez.org','ballotpedia.org'];
+  if (HIGH.some(d => domain === d || domain.endsWith('.'+d))) return 'high';
+  // Wikipedia and general encyclopaedias are not authoritative for legal sources
+  const LOW = ['en.wikipedia.org','wikipedia.org','britannica.com','investopedia.com'];
+  if (LOW.some(d => domain === d || domain.endsWith('.'+d))) return 'low';
+  return 'medium';
+}
+
 // ── Gemini call ────────────────────────────────────
 async function callGemini(apiKey, sentence, footnoteText, sourceSnippet, sourceName) {
   const snippetBlock = sourceSnippet
@@ -959,23 +1007,23 @@ RULE: comparison_basis may only be "original_source" or "secondary_source" when 
   const data = await resp.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-  // Only keep grounding sources that have a real URL — filter(Boolean) is not enough
-  // because Gemini sometimes returns {title:'...'} objects with missing/empty uri.
+  // Only keep grounding sources with real, non-search URLs.
+  // filter(Boolean) is not enough — Gemini returns objects with missing/empty uri,
+  // and sometimes returns Google Search result pages which are not the actual source.
   const groundingSources = (data.candidates?.[0]?.groundingMetadata?.groundingChunks || [])
-    .map(c => c.web).filter(s => s && isValidUrl(s.uri));
+    .map(c => c.web).filter(s => s && isValidUrl(s.uri) && !isSearchUrl(s.uri));
 
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error(`No JSON in Gemini response: ${text.slice(0, 200)}`);
   const result = JSON.parse(jsonMatch[0]);
   result.grounding_sources = groundingSources;
 
-  // ── Hard enforcement: a source claim must be backed by a real URL.
-  // Gemini sometimes returns "null" (string), "N/A", or other non-URLs as source_url_read.
-  // Validate strictly before trusting it.
+  // ── Hard enforcement: a source claim must be backed by a real, non-search URL.
+  // Gemini sometimes returns "null" (string), "N/A", search pages, or other bad values.
   const rawReadUrl = typeof result.source_url_read === 'string'
     ? result.source_url_read.trim() : null;
-  const resolvedUrl = (isValidUrl(rawReadUrl) ? rawReadUrl : null)
-    || groundingSources.find(s => isValidUrl(s.uri))?.uri
+  const resolvedUrl = (isValidUrl(rawReadUrl) && !isSearchUrl(rawReadUrl) ? rawReadUrl : null)
+    || groundingSources.find(s => isValidUrl(s.uri) && !isSearchUrl(s.uri))?.uri
     || null;
 
   // Rule 1: any claim of reading a source (original or secondary) requires a real URL.
@@ -1265,23 +1313,34 @@ function makeAuthCard(a, idx, ri) {
 
   // ── Always-visible source bar (not inside collapsible body) ──────────────
   // Shown whenever Gemini visited a URL; cannot be hidden by toggling.
-  const basisPillCls = isOriginal ? 'basis-pill-original'
+  const basisPillCls = isOriginal  ? 'basis-pill-original'
                      : isSecondary ? 'basis-pill-secondary'
-                     : 'basis-pill-footnote';
-  const srcBarHtml = readUrl
-    ? `<div class="auth-src-bar">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;color:var(--accent)"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-        <a href="${esc(readUrl)}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">
-          ${isOriginal ? 'Open original source' : isSecondary ? 'Open secondary source' : 'Open source read by Gemini'}
-        </a>
-        <span class="basis-pill ${basisPillCls}">${basisLabel}</span>
-      </div>`
-    : (needsLink
-        ? `<div class="auth-src-bar" style="background:var(--red-bg)">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            <span style="font-size:12px;color:#7f1d1d">Gemini claimed to read the source but provided no URL — verdict downgraded to Cannot verify.</span>
-          </div>`
-        : '');
+                     :               'basis-pill-footnote';
+  let srcBarHtml = '';
+  if (readUrl) {
+    const rel      = urlReliability(readUrl);
+    const domain   = urlDomain(readUrl);
+    const relLabel = rel === 'high'   ? '✓ Authoritative'
+                   : rel === 'low'    ? '⚠ Verify source'
+                   :                    'Unverified domain';
+    const relCls   = `src-rel-${rel}`;
+    const linkLabel = isOriginal ? 'Open original source'
+                    : isSecondary ? 'Open secondary source'
+                    : 'Open source read by Gemini';
+    srcBarHtml = `<div class="auth-src-bar">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;color:var(--accent)"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      <a href="${esc(readUrl)}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">
+        ${linkLabel}<span class="src-domain">${esc(domain)}</span>
+      </a>
+      <span class="src-reliability ${relCls}">${relLabel}</span>
+      <span class="basis-pill ${basisPillCls}">${basisLabel}</span>
+    </div>`;
+  } else if (needsLink) {
+    srcBarHtml = `<div class="auth-src-bar" style="background:var(--red-bg)">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <span style="font-size:12px;color:#7f1d1d">Gemini claimed to read the source but provided no URL — verdict downgraded to Cannot verify.</span>
+    </div>`;
+  }
 
   // Primary link in the expanded body (duplicate of src bar for easy access)
   let primaryLinkHtml = readUrl
