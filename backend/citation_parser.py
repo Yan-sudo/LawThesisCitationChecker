@@ -282,6 +282,20 @@ _AGENCIES = (
     r"FINRA|FinCEN|OFAC|IRS|EEOC|OSHA|NRC|FRB|OTS|NCUA"
 )
 
+# Full agency names for patterns that spell out the agency name
+_AGENCY_FULL_NAMES = (
+    r"Commodity\s+Futures\s+Trading\s+Commission"
+    r"|Securities\s+and\s+Exchange\s+Commission"
+    r"|Federal\s+Trade\s+Commission"
+    r"|Federal\s+Communications\s+Commission"
+    r"|National\s+Labor\s+Relations\s+Board"
+    r"|Federal\s+Energy\s+Regulatory\s+Commission"
+    r"|Consumer\s+Financial\s+Protection\s+Bureau"
+    r"|Financial\s+Industry\s+Regulatory\s+Authority"
+    r"|Office\s+of\s+the\s+Comptroller\s+of\s+the\s+Currency"
+    r"|Federal\s+Deposit\s+Insurance\s+(?:Corporation|Corp\.?)"
+)
+
 _ADMIN_RE = re.compile(
     r"(?:"
     # In re / In the Matter of + any agency docket or release number
@@ -292,8 +306,24 @@ _ADMIN_RE = re.compile(
     # Release-number-first citations: SEC Release No. 34-12345
     r"(?:" + _AGENCIES + r")\s+(?:Release|Exch(?:ange)?\s+Act\s+Release|Admin\.)\s+No\.?\s*[\w\-\,\s]+"
     r"|"
-    # No-Action Letters, Staff Bulletins, guidance documents
+    # No-Action Letters, Staff Bulletins, guidance documents (abbreviated agencies)
     r"(?:" + _AGENCIES + r")\s+(?:No-Action\s+Letter|Staff\s+Bull(?:etin)?|Guidance|Advisory)\b"
+    r"|"
+    # Administrative Proceedings (abbreviated agencies)
+    r"(?:" + _AGENCIES + r")\s+Administrative\s+Proceeding\b"
+    r"|"
+    # Full agency name + Order / Proceeding / Release
+    # e.g. "Commodity Futures Trading Commission, Order of Registration: Kalshi Inc."
+    r"(?:" + _AGENCY_FULL_NAMES + r")"
+    r"\s*,\s*"
+    r"(?:Order(?:\s+of\b|\s+Granting\b|\s+Denying\b|\s+Approving\b|\s+Revoking\b)?"
+    r"|Final\s+Order"
+    r"|Administrative\s+(?:Order|Proceeding|Law\s+Judge)"
+    r"|No-Action\s+Letter"
+    r"|Staff\s+(?:Letter|Bulletin|Guidance|No-Action)"
+    r"|Exchange\s+Act\s+Release"
+    r"|Release\s+No\."
+    r")"
     r")",
     re.IGNORECASE,
 )
