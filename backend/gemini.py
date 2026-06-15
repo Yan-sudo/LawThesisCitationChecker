@@ -1,6 +1,11 @@
 """
 Gemini API client using only Python's stdlib urllib.
-Model: gemini-1.5-flash (fast, low cost, supports JSON mode).
+Model: gemini-2.0-flash (fast, low cost, supports JSON mode).
+
+NOTE: This module is currently UNUSED. The actual Gemini calls are performed
+client-side in index.html (callGemini function). This file is kept as a
+server-side fallback for future use if the LLM calls are ever moved to
+the Python backend.
 """
 
 import json
