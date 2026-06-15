@@ -15,6 +15,101 @@
 
 ---
 
+## 系统数据流图
+
+```mermaid
+flowchart TD
+    subgraph INPUT["📥 输入"]
+        DOCX[".docx 文件"]
+    end
+
+    subgraph BACKEND["🐍 后端 (Python stdlib)"]
+        PARSE["docx_parser.py
+        提取脚注 + 正文句子 ✅"]
+        SPLIT["authority_splitter.py
+        多引用拆分 ✅"]
+        CITE["citation_parser.py
+        类型识别 + 字段提取"]
+        FETCH["main.py _fetch_source
+        分发到对应 fetcher"]
+    end
+
+    subgraph FETCHERS["🌐 Fetchers"]
+        CASES["cases.py
+        CourtListener ✅"]
+        STATUTES["statutes.py
+        Cornell USC + eCFR ✅"]
+        ARTICLES["articles.py
+        CrossRef → OpenAlex →
+        Semantic Scholar ✅"]
+        BOOKS["books.py
+        Google Books ✅"]
+        WEBPAGES["webpages.py
+        网页直接抓取 ❌ M1"]
+        PDF["PDF 解析器 ❌ M3"]
+    end
+
+    subgraph FRONTEND["🖥️ 前端 (index.html)"]
+        GEMINI["Gemini API
+        Google Search Grounding ✅"]
+        COMPARE["比对校验
+        proposition / parenthetical /
+        pincite ✅"]
+        DIFF["差异高亮 ❌ PRD §4.3"]
+        BADGE["Rule Badge
+        Bluebook 规则标记 ✅"]
+        VERDICT["结果输出
+        Supports / Questionable /
+        Does not support /
+        Cannot verify ✅"]
+    end
+
+    subgraph OUTPUT["📤 输出"]
+        JSON["JSON 导出 ✅"]
+        PDF_RPT["PDF/Word 报告 ❌ M4"]
+        UI["浏览器内结果卡片 ✅"]
+    end
+
+    DOCX --> PARSE
+    PARSE --> SPLIT
+    SPLIT --> CITE
+    CITE -->|"CASE"| CASES
+    CITE -->|"STATUTE/CFR"| STATUTES
+    CITE -->|"ARTICLE"| ARTICLES
+    CITE -->|"BOOK"| BOOKS
+    CITE -->|"URL ❌"| WEBPAGES
+    CITE -->|"PDF ❌"| PDF
+    CASES --> FETCH
+    STATUTES --> FETCH
+    ARTICLES --> FETCH
+    BOOKS --> FETCH
+    WEBPAGES --> FETCH
+    PDF --> FETCH
+    FETCH --> GEMINI
+    GEMINI --> COMPARE
+    COMPARE --> DIFF
+    COMPARE --> BADGE
+    COMPARE --> VERDICT
+    VERDICT --> JSON
+    VERDICT --> PDF_RPT
+    VERDICT --> UI
+
+    style INPUT fill:#e8f5e9,stroke:#4caf50
+    style BACKEND fill:#e3f2fd,stroke:#2196f3
+    style FETCHERS fill:#fff3e0,stroke:#ff9800
+    style FRONTEND fill:#fce4ec,stroke:#e91e63
+    style OUTPUT fill:#f3e5f5,stroke:#9c27b0
+```
+
+### 图例说明
+
+- ✅ = 已完成，有测试覆盖
+- ❌ = 未开始，对应 PRD 里程碑 M1/M3/M4
+- 数据从左到右流经：**输入 → 后端解析 → Fetcher 抓取 → 前端 Gemini 比对 → 输出**
+- LLM 调用完全在前端 JS 中完成（`callGemini()`），后端不持有 API Key
+
+---
+
 ## Section 4.1 — 引用类型识别
 
 PRD 要求："单个 footnote 需能辨别三种 citation 类型并分流到对应处理器"
