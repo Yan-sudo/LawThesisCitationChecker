@@ -24,7 +24,7 @@ def _get_html(url: str) -> str:
 
 
 def fetch_statute(title: str, code: str, section: str, year: str = None) -> dict:
-    code_upper = (code or "").upper().replace(" ", "")
+    code_upper = (code or "").upper().replace(" ", "").replace(".", "")
     if "CFR" in code_upper:
         return _fetch_ecfr(title, section)
     return _fetch_usc(title, section)
