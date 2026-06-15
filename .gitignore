@@ -1,8 +1,28 @@
+# Python
 backend/.venv/
 backend/__pycache__/
 backend/fetchers/__pycache__/
-taskpane/node_modules/
-taskpane/dist/
 *.pyc
 *.pyo
+
+# Node / TypeScript (Word Add-in)
+taskpane/node_modules/
+taskpane/dist/
+
+# Local tools
+.codegraph/
+
+# Binary / large files
+citation-checker-prd.pdf
+
+# OS
 .DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Environment
+.env
+.env.*
