@@ -195,3 +195,68 @@ The splitter handles semicolon-separated lists and `Compare X, with Y` construct
 - Your `.docx` is processed on your local machine by the Python server and is never uploaded to any external service.
 - Footnote text and pre-fetched source snippets are sent to Google's Gemini API as part of the accuracy-checking prompt.
 - Your Gemini API key is stored only in your browser's `localStorage` if you tick *Remember key*; it is never sent to the local server.
+
+---
+
+## Development Workflow
+
+This project follows a structured **Tech Lead ↔ PM** collaboration process powered by [Superpowers](https://github.com/obra/superpowers) skills and [Codegraph](https://github.com/colbymchenry/codegraph) code intelligence.
+
+> Full workflow spec (中文): [`docs/DEVELOPMENT-WORKFLOW.md`](docs/DEVELOPMENT-WORKFLOW.md)
+> Merge Note template: [`docs/MERGE-NOTE-TEMPLATE.md`](docs/MERGE-NOTE-TEMPLATE.md)
+
+### Roles
+
+| Role | Responsibility | Tools |
+|------|---------------|-------|
+| **Tech Lead** | Implementation, code quality, architecture | Cursor + Codegraph + Superpowers |
+| **PM** | Requirements, acceptance testing, user scenarios | Claude Code + Feedback-Log.md |
+
+### Development Cycle
+
+```
+PM writes requirement         Tech Lead develops            PM accepts
+(User Story + AC)    →    (Brainstorm → TDD → Commit)  →  (Test vs AC)
+in Feedback-Log.md          + Codegraph impact analysis      via Merge Note
+```
+
+### Branch Strategy
+
+- **`master`** — stable baseline, no direct pushes
+- **`feature/<name>`** — one feature per branch (e.g. `feature/url-citation`)
+- **`fix/<name>`** — bug fixes
+
+### Handoff Process (every merge to master)
+
+1. Tech Lead pushes feature branch and creates a **Merge Note** in `docs/merge-notes/`
+2. Merge Note tells PM: what changed, how to test, expected results, known limitations
+3. PM tests against Acceptance Criteria and records results in `Feedback-Log.md`
+4. Pass → close requirement. Fail → feedback loop continues
+
+### File Ownership
+
+| Tech Lead owns | PM owns |
+|---------------|---------|
+| `backend/main.py` | `backend/citation_parser.py` |
+| `backend/fetchers/*.py` | `backend/authority_splitter.py` |
+| `backend/gemini.py` | `backend/bluebook.py` |
+| `backend/index.html` | `Feedback-Log.md` |
+| `taskpane/` | `citation-checker-prd.pdf` |
+| `docs/merge-notes/` | |
+
+### Tooling
+
+- **[Codegraph](https://github.com/colbymchenry/codegraph)** — semantic code intelligence (MCP). Use `codegraph_explore` to understand architecture, `codegraph_impact` before refactoring.
+- **[Superpowers](https://github.com/obra/superpowers)** — structured development skills (brainstorming, TDD, systematic debugging, verification before completion).
+
+### Roadmap (from PRD)
+
+| Priority | Feature | Milestone | Branch |
+|----------|---------|-----------|--------|
+| P0 | URL citation recognition + fetch + compare | M1 | `feature/url-citation` |
+| P1 | PDF parsing (text layer) | M3 | `feature/pdf-parser` |
+| P1 | PDF parsing (OCR fallback) | M3 | `feature/pdf-ocr` |
+| P2 | Report export (PDF/CSV) | M4 | `feature/report-export` |
+| P2 | Batch progress visualization | M4 | `feature/progress-bar` |
+| P3 | Semantic comparison thresholds | — | `feature/threshold` |
+| P3 | Source caching / mirroring | — | `feature/source-cache` |
