@@ -204,6 +204,7 @@ This project follows a structured **Tech Lead ↔ PM** collaboration process pow
 
 > Full workflow spec (中文): [`docs/DEVELOPMENT-WORKFLOW.md`](docs/DEVELOPMENT-WORKFLOW.md)
 > Merge Note template: [`docs/MERGE-NOTE-TEMPLATE.md`](docs/MERGE-NOTE-TEMPLATE.md)
+> PRD 需求拆解 & 进度追踪: [`docs/PRD-TRACKER.md`](docs/PRD-TRACKER.md)
 
 ### Roles
 
