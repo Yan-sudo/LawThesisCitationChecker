@@ -561,6 +561,14 @@ footer a:hover{text-decoration:underline}
         Get a free key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">Google AI Studio</a>.
         Your key goes directly to Google's API — it is never sent to this server.
       </p>
+      <div class="model-wrap" style="margin-top:10px">
+        <label for="model-select" style="font-size:12.5px;color:var(--text-2);display:block;margin-bottom:4px">Gemini model</label>
+        <select id="model-select" onchange="onModelChange()">
+          <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+          <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+          <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
+        </select>
+      </div>
     </div>
 
     <div class="panel">
@@ -690,6 +698,16 @@ let totalAuth = 0, doneAuth = 0;
     document.getElementById('remember-key').checked = true;
   }
 })();
+
+// ── Persist model choice ────────────────────────────
+(function initModel() {
+  const sel = document.getElementById('model-select');
+  const saved = localStorage.getItem('lexcheck-model');
+  if (saved && [...sel.options].some(o => o.value === saved)) sel.value = saved;
+})();
+function onModelChange() {
+  localStorage.setItem('lexcheck-model', document.getElementById('model-select').value);
+}
 function onRememberChange() {
   const checked = document.getElementById('remember-key').checked;
   if (!checked) localStorage.removeItem('lexcheck-apikey');
@@ -832,10 +850,11 @@ async function runCheck() {
   setProgress(0, totalAuth, 'Checking with Gemini AI…', `0 of ${totalAuth} authorities`);
   document.getElementById('ai-status').hidden = false;
 
+  const model = document.getElementById('model-select').value;
   await limitedMap(allAuthorities, 3, async ({ r, a, ri, ai }) => {
     try {
       a.llm = await withRetry(() =>
-        callGemini(key, r.sentence, a.text, a.source_snippet, a.source_name, a.source_url)
+        callGemini(key, model, r.sentence, a.text, a.source_snippet, a.source_name, a.source_url)
       );
     } catch (e) {
       a.llm = {
@@ -982,7 +1001,7 @@ function urlReliability(url) {
 //   • Gemini searches the web with Google Search grounding
 //   • Directed to start at the server-found URL when available
 //
-async function callGemini(apiKey, sentence, footnoteText, sourceSnippet, sourceName, sourceUrl) {
+async function callGemini(apiKey, model, sentence, footnoteText, sourceSnippet, sourceName, sourceUrl) {
   const validServerUrl = (isValidUrl(sourceUrl) && !isSearchUrl(sourceUrl) && !isGenericUrl(sourceUrl))
     ? sourceUrl : null;
   const hasText   = sourceSnippet && sourceSnippet.length >= 300;
@@ -1117,7 +1136,7 @@ Respond ONLY with valid JSON — no markdown fences:
   if (apiTools) body.tools = apiTools;
 
   const resp = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
   );
   if (!resp.ok) {

@@ -1,6 +1,6 @@
 """
 Gemini API client using only Python's stdlib urllib.
-Model: gemini-2.0-flash (fast, low cost, supports JSON mode).
+Model: gemini-2.5-flash (fast, low cost, supports JSON mode).
 
 NOTE: This module is currently UNUSED. The actual Gemini calls are performed
 client-side in index.html (callGemini function). This file is kept as a
@@ -14,7 +14,7 @@ import urllib.error
 
 API_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.0-flash:generateContent"
+    "gemini-2.5-flash:generateContent"
 )
 
 TIMEOUT = 45
