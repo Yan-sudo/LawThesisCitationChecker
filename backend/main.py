@@ -600,7 +600,18 @@ if __name__ == "__main__":
                  and os.path.isfile(args.certfile)
                  and os.path.isfile(args.keyfile))
 
-    server = HTTPServer(("0.0.0.0", args.port), Handler)
+    try:
+        server = HTTPServer(("0.0.0.0", args.port), Handler)
+    except OSError as exc:
+        if exc.errno in (48, 98):  # EADDRINUSE (macOS 48 / Linux 98)
+            print(f"\n  Port {args.port} is already in use.")
+            print(f"  The checker is probably already running — open "
+                  f"https://localhost:{args.port} and switch to Word.")
+            print(f"  To restart cleanly, free the port first:")
+            print(f"      lsof -ti tcp:{args.port} | xargs kill\n")
+            raise SystemExit(1)
+        raise
+
     scheme = "http"
     if use_https:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
