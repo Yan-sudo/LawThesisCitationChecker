@@ -1181,23 +1181,36 @@ DOCUMENT TEXT — retrieved from ${srcLabel}${validServerUrl ? ` (${validServerU
 ${sourceSnippet}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-TASK
+TASK — work in three passes. Do NOT judge from the opening sentence or
+paragraph alone; the relevant material is often in the middle or end of the
+document, not the start.
 
-Read the DOCUMENT TEXT above carefully. It is the actual content retrieved from ${srcLabel}.
+PASS 1 — ZOOM OUT. Read the whole DOCUMENT TEXT top to bottom. Summarise in
+one sentence what it covers overall (the main issue(s), holding, or subject
+matter), so you have the full context before judging anything.
 
-Step 1 — Find the passage in the DOCUMENT TEXT most relevant to the PROPOSITION.
-Step 2 — Copy it verbatim (minimum 10 words). This is your only permitted evidence.
-Step 3 — Judge: does that passage support the PROPOSITION?
+PASS 2 — KEYWORD SCAN. List the key legal terms/concepts in the PROPOSITION.
+Scan the ENTIRE document text (not just the first paragraph) for those terms
+or closely related concepts, and note every place they appear. A topic is
+only "absent" if it does not appear anywhere after scanning the full text —
+never conclude absence from a partial read.
+
+PASS 3 — ZOOM IN. Among the locations found in Pass 2, pick the single
+passage most directly on point and copy it verbatim (minimum 10 words). This
+quote — read in light of the Pass 1 overview — is your only permitted
+evidence for the verdict.
 
 CRITICAL RULES:
 • relevant_quote MUST be a verbatim copy of text found in the DOCUMENT TEXT above — do NOT quote from your training data or general knowledge.
-• If no relevant passage exists in the provided excerpt (the excerpt may not cover the cited page), set relevant_quote to null and verdict to "Cannot verify" — do not fabricate.
+• If no relevant passage exists anywhere in the provided excerpt after the full keyword scan (the excerpt may not cover the cited page), set relevant_quote to null and verdict to "Cannot verify" — do not fabricate.
+• Never return "Does not support" based on only the first sentence/paragraph you read — that verdict requires having scanned the full document text in Pass 2.
 • ${urlInstruction}
 • comparison_basis MUST be "original_source".
 • "Supports" / "Does not support" requires relevant_quote ≥ 10 words copied from the text above.
 
 Respond ONLY with valid JSON — no markdown fences:
 {
+  "doc_overview": "One sentence from Pass 1: what the document covers overall.",
   "source_url_read": ${validServerUrl ? `"${validServerUrl}"` : 'null'},
   "comparison_basis": "original_source",
   "comparison_source_description": "Text retrieved from ${srcLabel}",
@@ -1240,17 +1253,31 @@ ${validServerUrl ? '' : `
 • Book: search title + author + edition → find a preview showing the cited page.
 Navigate past index pages and search results to reach the document itself.`}
 
-STEP 2 — LOCATE AND QUOTE THE PASSAGE
+STEP 2 — ZOOM OUT: SKIM THE WHOLE DOCUMENT
 
-• Jump to the pincite page/section if one is cited.
-• If a parenthetical is quoted, locate those exact words.
-• Copy verbatim ≥ 10 words that are most relevant to the proposition.
+Once on the document, skim it top to bottom (not just the opening
+paragraph/headnote) and summarise in one sentence what it covers overall —
+the main issue(s) or holding. Do this before judging anything; many
+propositions are supported by material in the middle or end of a long
+opinion or article, not the first page.
 
-STEP 3 — VERDICT FROM THE QUOTE
+STEP 3 — KEYWORD SCAN THEN ZOOM IN
 
-Judge only from what you quoted:
+• List the key legal terms/concepts in the proposition.
+• Scan the full document for those terms or closely related concepts —
+  a topic only counts as "absent" once you've checked the whole document,
+  not just the section you opened to first.
+• Jump to the pincite page/section if one is cited; if a parenthetical is
+  quoted, locate those exact words.
+• Copy verbatim ≥ 10 words from the single most on-point passage you found.
+
+STEP 4 — VERDICT FROM THE QUOTE
+
+Judge only from what you quoted, read in light of the Step 2 overview:
 • "Supports": quoted text clearly supports the proposition.
-• "Does not support": quoted text contradicts or fails to support it.
+• "Does not support": quoted text contradicts or fails to support it —
+  only after the full-document keyword scan in Step 3, never from the
+  opening sentence/paragraph alone.
 • "Questionable": text is ambiguous or you used a summary rather than the original.
 • "Cannot verify": could not locate and quote the specific document.
 
@@ -1261,9 +1288,11 @@ R2. source_url_read = specific document page URL, or null → comparison_basis =
 R3. comparison_basis "footnote_only" → verdict = "Cannot verify". No exceptions.
 R4. "Supports" / "Does not support" requires relevant_quote ≥ 10 words.
 R5. General index or homepage URL → comparison_basis = "secondary_source" at best.
+R6. Never return "Does not support" without having scanned the full document text per Step 3 — a single out-of-context sentence is not enough.
 
 Respond ONLY with valid JSON — no markdown fences:
 {
+  "doc_overview": "One sentence from Step 2: what the document covers overall.",
   "source_url_read": "URL of the specific document page, or null",
   "comparison_basis": "original_source | secondary_source | footnote_only",
   "comparison_source_description": "e.g. 'Court opinion at CourtListener' or 'Could not locate document'",
@@ -1802,6 +1831,12 @@ function makeAuthCard(a, idx, ri) {
         <span class="basis-icon">${basisIcon}</span>
         <div style="flex:1"><span class="basis-label">Compared against: ${basisLabel}.</span>${basisDesc ? ' ' + esc(basisDesc) : ''}</div>
       </div>
+
+      ${llm.doc_overview
+        ? `<div class="source-note mt8" style="font-style:normal">
+             <strong style="color:var(--text-2)">Document covers:</strong> ${esc(llm.doc_overview)}
+           </div>`
+        : ''}
 
       ${llm.relevant_quote
         ? `<div class="quote-box mt8">
