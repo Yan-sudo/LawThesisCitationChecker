@@ -6,6 +6,8 @@
 <title>LexCheck — Law Citation Accuracy Checker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth.js/1.4.2/mammoth.browser.min.js"></script>
 <style>
 /* ── Reset & tokens ─────────────────────────────── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -346,6 +348,19 @@ main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
   border-radius:0 6px 6px 0;white-space:pre-wrap;
 }
 .sources-list{display:flex;flex-direction:column;gap:5px;margin-top:6px}
+
+/* ── Source relay upload ─────────────────────────── */
+.upload-relay{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.upload-btn{
+  display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+  background:var(--page);border:1.5px dashed var(--border);color:var(--text-2);
+  padding:7px 14px;border-radius:7px;font-size:12.5px;font-weight:500;
+  transition:border-color var(--transition),color var(--transition);
+}
+.upload-btn:hover{border-color:var(--accent);color:var(--accent)}
+.upload-status{font-size:12px;color:var(--green);font-weight:500}
+.upload-status.err{color:var(--red)}
+.upload-status.busy{color:var(--text-3)}
 
 /* ── Relevant quote ──────────────────────────────── */
 .quote-box{
@@ -1044,6 +1059,85 @@ function urlReliability(url) {
   const LOW = ['en.wikipedia.org','wikipedia.org','britannica.com','investopedia.com'];
   if (LOW.some(d => domain === d || domain.endsWith('.'+d))) return 'low';
   return 'medium';
+}
+
+// ── Source relay upload (user-supplied PDF/DOCX/TXT) ────────────────────────
+// Lets the user hand-feed the actual document text for an authority Gemini
+// could not verify (paywalled, search-engine-only-finds-an-abstract, etc).
+// Extraction happens entirely client-side — the file never leaves the browser.
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+async function extractFileText(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.pdf')) {
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    let text = '';
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      text += content.items.map(it => it.str).join(' ') + '\n\n';
+    }
+    return text.trim();
+  }
+  if (name.endsWith('.docx')) {
+    const buf = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer: buf });
+    return (result.value || '').trim();
+  }
+  // .txt and anything else: read as plain text
+  return (await file.text()).trim();
+}
+
+async function handleSourceUpload(event, ri, ai) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const statusEl = document.getElementById(`upload-status-${ri}-${ai}`);
+  const setStatus = (text, cls) => {
+    if (statusEl) { statusEl.textContent = text; statusEl.className = 'upload-status' + (cls ? ' ' + cls : ''); }
+  };
+
+  setStatus('Reading file…', 'busy');
+  let text;
+  try {
+    text = await extractFileText(file);
+  } catch (e) {
+    setStatus('Could not read file: ' + e.message, 'err');
+    return;
+  }
+  if (!text || text.length < 50) {
+    setStatus('No usable text found in that file.', 'err');
+    return;
+  }
+
+  const key   = document.getElementById('api-key').value.trim();
+  const model = document.getElementById('model-select').value;
+  if (!key) { setStatus('Enter your Gemini API key first.', 'err'); return; }
+
+  const r = lastResults.results[ri];
+  const a = r.authorities[ai];
+  // Cap to a generous excerpt so the prompt stays within budget.
+  a.source_snippet = text.slice(0, 20000);
+  a.source_name     = 'user_upload';
+  a.source_uploaded = true;
+
+  setStatus(`Re-checking against "${file.name}"…`, 'busy');
+  try {
+    a.llm = await withRetry(() =>
+      callGemini(key, model, r.sentence, a.text, a.source_snippet, file.name, a.source_url)
+    );
+    setStatus('✓ Verified against your uploaded file');
+  } catch (e) {
+    setStatus('Gemini check failed: ' + e.message, 'err');
+  }
+
+  updateAuthCard(ri, ai, a);
+  updateFootnoteHeader(ri, r);
+  updateSummary(lastResults.results);
+  updateFilterCounts(lastResults.results);
 }
 
 // ── Gemini call ────────────────────────────────────────────────────────────────
@@ -1754,6 +1848,18 @@ function makeAuthCard(a, idx, ri) {
             View original document (PDF)</a>` : ''}
         ${(basis === 'footnote_only' && a.source_note) ? `<span class="source-note">${esc(a.source_note)}</span>` : ''}
         ${otherHtml}
+      </div>
+
+      <div class="mt12">
+        <div class="section-title">Can't verify automatically?</div>
+        <div class="upload-relay mt4">
+          <label class="upload-btn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Upload source (PDF / DOCX / TXT)
+            <input type="file" accept=".pdf,.docx,.txt" style="display:none" onchange="handleSourceUpload(event, ${ri}, ${ai})">
+          </label>
+          <span class="upload-status" id="upload-status-${ri}-${ai}">${a.source_uploaded ? '✓ Verified against your uploaded file' : ''}</span>
+        </div>
       </div>
 
     </div>`;
