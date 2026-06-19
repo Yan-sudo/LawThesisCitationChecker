@@ -17,6 +17,9 @@ import json
 import os
 import re
 import threading
+import urllib.error
+import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Optional
 
@@ -47,6 +50,8 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_file(os.path.join(HERE, "index.html"), "text/html; charset=utf-8")
         elif self.path == "/health":
             self._json(200, {"status": "ok"})
+        elif self.path.startswith("/fetch-source"):
+            self._handle_fetch_source()
         else:
             self._json(404, {"error": "not found"})
 
@@ -114,6 +119,51 @@ class Handler(BaseHTTPRequestHandler):
             "results": results,
         })
 
+    # ── /fetch-source ─────────────────────────────────────────────────────────
+    # Downloads a source document (typically a PDF on SSRN, ResearchGate,
+    # CourtListener, etc.) server-side and hands the raw bytes to the browser,
+    # which extracts text with pdf.js. Gemini's web-search tool can locate
+    # these pages but cannot click through download walls or render PDF
+    # binaries, so this gives the checker a way to actually read the source.
+
+    _FETCH_MAX_BYTES = 30 * 1024 * 1024
+
+    def _handle_fetch_source(self):
+        qs  = urllib.parse.urlparse(self.path).query
+        url = (urllib.parse.parse_qs(qs).get("url") or [None])[0]
+        if not url or not re.match(r"^https?://", url, re.I):
+            self._json(400, {"error": "Missing or invalid url parameter"})
+            return
+
+        req = urllib.request.Request(url, headers={
+            "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/124.0 Safari/537.36"),
+            "Accept": "application/pdf,text/html,*/*",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                content_type = resp.headers.get("Content-Type", "application/octet-stream")
+                data = resp.read(self._FETCH_MAX_BYTES + 1)
+        except urllib.error.HTTPError as exc:
+            self._json(exc.code, {"error": f"Source returned HTTP {exc.code}"})
+            return
+        except Exception as exc:
+            self._json(502, {"error": f"Could not fetch source: {exc}"})
+            return
+
+        if len(data) > self._FETCH_MAX_BYTES:
+            self._json(413, {"error": "Source file too large"})
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self._cors()
+        self.end_headers()
+        self.wfile.write(data)
+
     # ── HTTP helpers ──────────────────────────────────────────────────────────
 
     def _serve_file(self, path: str, content_type: str):
@@ -168,6 +218,7 @@ def _process_one(item: dict, note_index: dict | None = None) -> dict:
             "source_pdf_url":     source_info.get("pdf_url"),
             "source_note":        source_info.get("note"),
             "source_snippet":     source_info.get("snippet"),
+            "source_full_text_available": bool(source_info.get("full_text_available")),
         }
 
     threads = [

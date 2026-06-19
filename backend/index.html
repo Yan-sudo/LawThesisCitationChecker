@@ -834,6 +834,11 @@ async function runCheck() {
   const model = document.getElementById('model-select').value;
   await limitedMap(allAuthorities, 3, async ({ r, a, ri, ai }) => {
     try {
+      if ((!a.source_snippet || a.source_snippet.length < 300) &&
+          (a.source_pdf_url || a.source_full_text_available)) {
+        const autoText = await autoFetchSourceText(a.source_pdf_url || a.source_url);
+        if (autoText) { a.source_snippet = autoText.slice(0, 20000); a.source_auto_fetched = true; }
+      }
       a.llm = await withRetry(() =>
         callGemini(key, model, r.sentence, a.text, a.source_snippet, a.source_name, a.source_url)
       );
@@ -1023,18 +1028,21 @@ if (window.pdfjsLib) {
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
 
+async function extractPdfTextFromBuffer(buf) {
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let text = '';
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    text += content.items.map(it => it.str).join(' ') + '\n\n';
+  }
+  return text.trim();
+}
+
 async function extractFileText(file) {
   const name = file.name.toLowerCase();
   if (name.endsWith('.pdf')) {
-    const buf = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-    let text = '';
-    for (let p = 1; p <= pdf.numPages; p++) {
-      const page = await pdf.getPage(p);
-      const content = await page.getTextContent();
-      text += content.items.map(it => it.str).join(' ') + '\n\n';
-    }
-    return text.trim();
+    return extractPdfTextFromBuffer(await file.arrayBuffer());
   }
   if (name.endsWith('.docx')) {
     const buf = await file.arrayBuffer();
@@ -1043,6 +1051,29 @@ async function extractFileText(file) {
   }
   // .txt and anything else: read as plain text
   return (await file.text()).trim();
+}
+
+// Best-effort: ask our local server to fetch a source URL (bypassing browser
+// CORS and basic anti-bot walls) and try to extract real text from it.
+// Used so Gemini gets actual document text instead of only what its own web
+// search tool can see — search grounding can find a SSRN/ResearchGate page
+// but cannot click through download gates or read PDF bytes.
+async function autoFetchSourceText(url) {
+  if (!url) return null;
+  try {
+    const resp = await fetch(`/fetch-source?url=${encodeURIComponent(url)}`);
+    if (!resp.ok) return null;
+    const contentType = (resp.headers.get('Content-Type') || '').toLowerCase();
+    const buf   = await resp.arrayBuffer();
+    const bytes = new Uint8Array(buf.slice(0, 5));
+    const isPdf = contentType.includes('pdf') ||
+      (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46); // %PDF
+    if (!isPdf) return null; // HTML landing pages aren't worth extracting
+    const text = await extractPdfTextFromBuffer(buf);
+    return text && text.length >= 300 ? text : null;
+  } catch {
+    return null;
+  }
 }
 
 async function handleSourceUpload(event, ri, ai) {
@@ -1745,6 +1776,10 @@ function makeAuthCard(a, idx, ri) {
     <div class="auth-body">
 
       ${evidenceBarHtml}
+
+      ${a.source_auto_fetched
+        ? `<div class="upload-status" style="margin-top:6px">✓ Full text auto-fetched from the source PDF (not just a web search)</div>`
+        : ''}
 
       ${llm.doc_overview
         ? `<div class="source-note mt8" style="font-style:normal">
