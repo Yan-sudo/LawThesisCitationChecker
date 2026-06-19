@@ -72,13 +72,19 @@ the server.
 Fully quit Word (`Cmd+Q`) and reopen it. Confirm the manifest was copied:
 `ls ~/Library/Containers/com.microsoft.Word/Data/Documents/wef`
 
-**The pane opens but is blank or shows a security/certificate warning.**
-The server isn't running, or the certificate isn't trusted yet.
-- Make sure `run.command` is running and you can open `https://localhost:8000`
-  in Safari without a warning.
-- If Safari warns, open **Keychain Access**, search **localhost**, double-click
-  it, expand **Trust**, set **When using this certificate: Always Trust**, close
-  (enter your password), then reopen Word.
+**The pane shows "The content is blocked because it isn't signed by a valid
+security certificate" (or is blank).**
+Word's task pane runs sandboxed and only trusts certificates in the **System**
+keychain — not your login keychain. Trust it system-wide:
+
+```bash
+sudo security add-trusted-cert -d -r trustRoot \
+  -k /Library/Keychains/System.keychain ~/.office-addin-dev-certs/localhost.crt
+```
+
+Enter your Mac password, then fully quit Word (`Cmd+Q`) and reopen it. Re-running
+`setup-mac.command` does the same thing. Also confirm `run.command` is running
+and that `https://localhost:8000` loads in Safari without a warning.
 
 **"No footnotes found."**
 The add-in reads real Word footnotes (Insert → Footnote). Endnotes and

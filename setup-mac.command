@@ -29,19 +29,15 @@ echo "  ============================================"
 echo ""
 
 # ── 1. HTTPS certificate ──────────────────────────────────────────────────────
-if [ -f "$CERT" ] && [ -f "$KEY" ]; then
-  echo "  [1/2] HTTPS certificate already present — skipping."
-else
-  echo "  [1/2] Creating a trusted HTTPS certificate for localhost…"
-  mkdir -p "$CERT_DIR"
+mkdir -p "$CERT_DIR"
 
-  if command -v npx >/dev/null 2>&1 && npx --yes office-addin-dev-certs install >/dev/null 2>&1; then
-    echo "        Installed via office-addin-dev-certs."
-  else
-    # No Node? Fall back to openssl (built into macOS) + Keychain trust.
-    echo "        Using openssl (built into macOS)…"
-    CONF="$(mktemp)"
-    cat > "$CONF" <<'EOF'
+if [ -f "$CERT" ] && [ -f "$KEY" ]; then
+  echo "  [1/2] HTTPS certificate already present — reusing it."
+else
+  echo "  [1/2] Creating an HTTPS certificate for https://localhost:8000…"
+  echo "        Using openssl (built into macOS)…"
+  CONF="$(mktemp)"
+  cat > "$CONF" <<'EOF'
 [req]
 distinguished_name = dn
 x509_extensions    = v3
@@ -57,17 +53,26 @@ extendedKeyUsage      = serverAuth
 DNS.1 = localhost
 IP.1  = 127.0.0.1
 EOF
-    openssl req -x509 -newkey rsa:2048 -nodes \
-      -keyout "$KEY" -out "$CERT" -days 825 \
-      -config "$CONF" -extensions v3 >/dev/null 2>&1
-    rm -f "$CONF"
+  openssl req -x509 -newkey rsa:2048 -nodes \
+    -keyout "$KEY" -out "$CERT" -days 825 \
+    -config "$CONF" -extensions v3 >/dev/null 2>&1
+  rm -f "$CONF"
+fi
 
-    echo "        Adding the certificate to your login Keychain as trusted."
-    echo "        (You may be asked for your Mac password — this is expected.)"
-    security add-trusted-cert -r trustRoot \
-      -k "$HOME/Library/Keychains/login.keychain-db" "$CERT" 2>/dev/null \
-      || echo "        NOTE: could not auto-trust. If the pane shows a security warning,"\
-              "open Keychain Access, find 'localhost', and set it to 'Always Trust'."
+# Trust the certificate in the SYSTEM keychain. Word's task pane runs in a
+# sandbox that does NOT honour login-keychain trust, so this must be system-wide
+# or the pane shows "isn't signed by a valid security certificate".
+if security find-certificate -c localhost /Library/Keychains/System.keychain >/dev/null 2>&1; then
+  echo "        Certificate already trusted system-wide."
+else
+  echo "        Trusting the certificate system-wide so Word's sandbox accepts it."
+  echo "        You'll be asked for your Mac password — this is expected."
+  if sudo security add-trusted-cert -d -r trustRoot \
+       -k /Library/Keychains/System.keychain "$CERT"; then
+    echo "        Trusted."
+  else
+    echo "        NOTE: could not auto-trust. Open Keychain Access, find 'localhost',"
+    echo "        double-click it, expand Trust, set 'Always Trust', then reopen Word."
   fi
 fi
 echo ""
