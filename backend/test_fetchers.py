@@ -67,6 +67,8 @@ mock_search_result = {
 
 mock_opinion_result = {
     "plain_text": "The person has the right to remain silent. *436 This is a fundamental right. " * 50,
+    "local_path": "pdf/2006/03/13/miranda.pdf",
+    "download_url": "https://www.supremecourt.gov/opinions/miranda.pdf",
 }
 
 def mock_get_citation_search(url, params=None):
@@ -85,6 +87,36 @@ with patch("fetchers.cases._get", side_effect=mock_get_citation_search):
     check(r["url"] is not None, f"URL present: {r['url']}")
     check(r["snippet"] is not None, "Snippet present")
     check(r["full_text_available"] is True, "Full text available")
+    check(r["pdf_url"] == "https://storage.courtlistener.com/pdf/2006/03/13/miranda.pdf",
+          f"PDF from local_path (CL storage): {r['pdf_url']}")
+
+# Mock: no stored copy → fall back to court's download_url
+mock_opinion_no_local = {
+    "plain_text": "Some opinion text. *100 holding here. " * 20,
+    "download_url": "https://www.supremecourt.gov/opinions/foo.pdf",
+}
+def mock_get_no_local(url, params=None):
+    if "search" in url:
+        return mock_search_result
+    if "opinions" in url:
+        return mock_opinion_no_local
+    return {}
+with patch("fetchers.cases._get", side_effect=mock_get_no_local):
+    r = fetch_case(parties="Foo v. Bar", volume="384", reporter="U.S.", page="100")
+    check(r["pdf_url"] == "https://www.supremecourt.gov/opinions/foo.pdf",
+          f"PDF falls back to download_url: {r['pdf_url']}")
+
+# Mock: no document link available at all → pdf_url is None
+mock_opinion_no_pdf = {"plain_text": "Text only, no files. " * 20}
+def mock_get_no_pdf(url, params=None):
+    if "search" in url:
+        return mock_search_result
+    if "opinions" in url:
+        return mock_opinion_no_pdf
+    return {}
+with patch("fetchers.cases._get", side_effect=mock_get_no_pdf):
+    r = fetch_case(parties="Foo v. Bar", volume="384", reporter="U.S.", page="100")
+    check(r["pdf_url"] is None, f"No file → pdf_url None: {r['pdf_url']}")
 
 # Mock: no results found
 def mock_get_no_results(url, params=None):

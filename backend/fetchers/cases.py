@@ -15,6 +15,8 @@ from typing import Optional
 
 COURTLISTENER_SEARCH  = "https://www.courtlistener.com/api/rest/v4/search/"
 COURTLISTENER_OPINION = "https://www.courtlistener.com/api/rest/v4/opinions/{}/"
+# CourtListener stores downloaded opinion files (usually PDFs) under this host.
+COURTLISTENER_STORAGE = "https://storage.courtlistener.com/"
 
 HEADERS = {"User-Agent": "LawCitationChecker/1.0 (academic research)"}
 TIMEOUT = 15
@@ -58,13 +60,20 @@ def fetch_case(parties: str, volume: str, reporter: str, page: str,
     opinion_id = hit.get("id")
     case_name  = hit.get("caseName", parties)
     cl_url     = f"https://www.courtlistener.com{hit.get('absolute_url', '')}"
-    snippet    = _get_snippet(opinion_id, pincite) if opinion_id else None
+
+    # Fetch the opinion record once, then derive both the text snippet and a
+    # direct link to the actual document (PDF) — same public CourtListener data
+    # that desktop readers like Case Viewer rely on.
+    opinion = _get_opinion(opinion_id) if opinion_id else None
+    snippet = _snippet_from_opinion(opinion, pincite) if opinion else None
+    pdf_url = _pdf_url_from_opinion(opinion) if opinion else None
 
     return {
         "source": "courtlistener",
         "url": cl_url,
         "case_name_found": case_name,
         "snippet": snippet,
+        "pdf_url": pdf_url,
         "full_text_available": snippet is not None,
         "note": None if snippet else "Full text not available in CourtListener for this opinion.",
     }
@@ -106,14 +115,34 @@ def _search_by_parties(parties: str, volume: str, reporter: str, page: str) -> O
         return None
 
 
-# ── Snippet extraction ─────────────────────────────────────────────────────────
+# ── Opinion fetch + PDF link ─────────────────────────────────────────────────
 
-def _get_snippet(opinion_id: int, pincite: Optional[str]) -> Optional[str]:
+def _get_opinion(opinion_id: int) -> Optional[dict]:
+    """Fetch the full opinion record. Returns None on any error."""
     try:
-        data = _get(COURTLISTENER_OPINION.format(opinion_id))
+        return _get(COURTLISTENER_OPINION.format(opinion_id))
     except Exception:
         return None
 
+
+def _pdf_url_from_opinion(data: dict) -> Optional[str]:
+    """
+    Resolve a link to the actual document.
+    Prefer CourtListener's stored copy (local_path → storage host, usually a
+    PDF), then fall back to the court's original download_url.
+    """
+    local = data.get("local_path")
+    if local:
+        return COURTLISTENER_STORAGE + str(local).lstrip("/")
+    dl = data.get("download_url")
+    if dl and str(dl).startswith(("http://", "https://")):
+        return dl
+    return None
+
+
+# ── Snippet extraction ─────────────────────────────────────────────────────────
+
+def _snippet_from_opinion(data: dict, pincite: Optional[str]) -> Optional[str]:
     text = data.get("plain_text") or _strip_html(data.get("html_with_citations") or "")
     if not text:
         return None

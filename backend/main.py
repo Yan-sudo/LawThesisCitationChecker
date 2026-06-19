@@ -160,6 +160,7 @@ def _process_one(item: dict) -> dict:
             "bluebook_rule_desc": parsed.bluebook_rule_desc,
             "source_name":        source_info.get("source"),
             "source_url":         source_info.get("url"),
+            "source_pdf_url":     source_info.get("pdf_url"),
             "source_note":        source_info.get("note"),
             "source_snippet":     source_info.get("snippet"),
         }

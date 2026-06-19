@@ -290,6 +290,7 @@ main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
 .vp-inaccurate{background:var(--red-bg);color:#7f1d1d}
 .vp-no-item{background:var(--slate-bg);color:var(--slate)}
 .vp-source{background:#dbeafe;color:#1d4ed8}
+.vp-pdf{background:#fee2e2;color:#b91c1c}
 .vp-no-source{background:var(--amber-bg);color:#78350f}
 .vp-error{background:var(--red-bg);color:#7f1d1d}
 
@@ -1518,6 +1519,12 @@ function makeAuthCard(a, idx, ri) {
     ? `<a class="vp vp-source" href="${esc(a.source_url)}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">${esc(sourceLabel(a.source_name))} ↗</a>`
     : `<span class="vp vp-no-source">${esc(sourceLabel(a.source_name))}</span>`;
 
+  // Direct link to the actual document (PDF), supplied by the pre-fetcher
+  // (e.g. CourtListener's stored opinion PDF). Independent of Gemini's read URL.
+  const pdfPill = a.source_pdf_url
+    ? `<a class="vp vp-pdf" href="${esc(a.source_pdf_url)}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">PDF ↗</a>`
+    : '';
+
   // ── Always-visible source bar (not inside collapsible body) ──────────────
   // Shown whenever Gemini visited a URL; cannot be hidden by toggling.
   const basisPillCls = isOriginal  ? 'basis-pill-original'
@@ -1587,7 +1594,7 @@ function makeAuthCard(a, idx, ri) {
         <span class="auth-text">${esc(a.text)}</span>
       </div>
       <div class="cit-verdicts" style="gap:4px;align-items:center">
-        ${verdictPill(propV,'prop')}${srcPill}
+        ${verdictPill(propV,'prop')}${pdfPill}${srcPill}
       </div>
       <button class="copy-btn" title="Copy citation" onclick="event.stopPropagation();copyText('${esc(a.text).replace(/'/g,"\\'")}')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
@@ -1642,6 +1649,9 @@ function makeAuthCard(a, idx, ri) {
       <div class="mt12">
         <div class="section-title">Source read by Gemini</div>
         ${primaryLinkHtml}
+        ${a.source_pdf_url ? `<a class="source-link mt4" href="${esc(a.source_pdf_url)}" target="_blank" rel="noreferrer">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            View original document (PDF)</a>` : ''}
         ${(basis === 'footnote_only' && a.source_note) ? `<span class="source-note">${esc(a.source_note)}</span>` : ''}
         ${otherHtml}
       </div>
