@@ -73,18 +73,22 @@ Fully quit Word (`Cmd+Q`) and reopen it. Confirm the manifest was copied:
 `ls ~/Library/Containers/com.microsoft.Word/Data/Documents/wef`
 
 **The pane shows "The content is blocked because it isn't signed by a valid
-security certificate" (or is blank).**
-Word's task pane runs sandboxed and only trusts certificates in the **System**
-keychain — not your login keychain. Trust it system-wide:
+security certificate" — even though `https://localhost:8000` loads fine in Safari.**
+Word's task pane is sandboxed and stricter than Safari: it wants a **CA-signed**
+certificate trusted in the **System** keychain, and it caches the first failure.
+Re-run the installer, which rebuilds the certificate as a proper CA→localhost
+chain, trusts the CA system-wide, and clears Word's cache:
 
 ```bash
-sudo security add-trusted-cert -d -r trustRoot \
-  -k /Library/Keychains/System.keychain ~/.office-addin-dev-certs/localhost.crt
+bash "setup-mac.command" --force-cert
 ```
 
-Enter your Mac password, then fully quit Word (`Cmd+Q`) and reopen it. Re-running
-`setup-mac.command` does the same thing. Also confirm `run.command` is running
-and that `https://localhost:8000` loads in Safari without a warning.
+(Or just double-click `setup-mac.command` again.) Enter your Mac password when
+asked. It quits Word to clear the cache, so **reopen Word afterwards**, restart
+`run.command`, then click Citation Checker again.
+
+If it still blocks: open **Keychain Access**, search **LexCheck Local Dev CA**,
+double-click it → **Trust** → set **Always Trust**, save, and reopen Word.
 
 **"No footnotes found."**
 The add-in reads real Word footnotes (Insert → Footnote). Endnotes and
