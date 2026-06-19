@@ -1,10 +1,11 @@
 # LexCheck — Law Citation Accuracy Checker
 
-A local web app that checks whether every cited authority in a law review paper actually supports the proposition it is cited for. Upload a `.docx`, enter your Gemini API key, and LexCheck checks each footnote — splitting multi-authority footnotes into individual citations, fetching sources, and using Gemini with Google Search grounding to evaluate accuracy.
+A local tool that checks whether every cited authority in a law review paper actually supports the proposition it is cited for. It splits multi-authority footnotes into individual citations, fetches the underlying sources, and uses **Gemini with Google Search grounding** to judge each citation's accuracy.
 
-> **Use it inside Word (macOS):** LexCheck also runs as a Word task pane add-in
-> that reads footnotes straight from the open document — no upload. See
-> **[WORD-PLUGIN-SETUP.md](WORD-PLUGIN-SETUP.md)** for the one-step Mac installer.
+The same code runs two ways:
+
+- **Browser app** — start the local server, open it in your browser, and upload a `.docx`.
+- **Word add-in (macOS)** — a task pane inside Word that reads footnotes straight from the open document, with no upload. See **[WORD-PLUGIN-SETUP.md](WORD-PLUGIN-SETUP.md)** for the one-step Mac installer.
 
 ---
 
@@ -26,15 +27,25 @@ For each authority in each footnote it:
 
 ```
 backend/
-  main.py               ← stdlib HTTP server (no dependencies beyond Python)
-  docx_parser.py        ← extracts footnotes + body sentences from .docx
+  main.py               ← stdlib HTTP/HTTPS server. Serves the UI plus:
+                            /upload (browser .docx), /check (Word footnotes),
+                            /fetch-source (PDF proxy), /assets, /health
+  docx_parser.py        ← extracts footnotes + body sentences from .docx (browser mode)
   citation_parser.py    ← Bluebook citation type detection (Rules 4, 10–16)
   authority_splitter.py ← splits multi-authority footnotes; handles Compare/with
   fetchers/             ← CourtListener, USCODE, eCFR, CrossRef, OpenAlex, Google Books
-  index.html            ← single-file UI served by the server
+  index.html            ← single-file UI; Office-aware, so the same page works
+                            in a browser and as a Word task pane
+
+manifest.xml            ← Office add-in manifest (Word task pane + Home-ribbon button)
+taskpane/assets/        ← icons referenced by the manifest
+setup-mac.command       ← one-step macOS installer (HTTPS cert + sideload + cache clear)
+run.command             ← double-click launcher for the local server (macOS)
 ```
 
-**Gemini runs entirely in the browser.** Your API key is never sent to the local Python server — it goes directly from your browser to Google's API.
+**Gemini runs entirely in the front end** — in your browser, or in Word's task-pane webview. Your API key is never sent to the local Python server; it goes directly to Google's API. The server only identifies sources and fetches free public metadata.
+
+**HTTPS:** Word add-ins must load over trusted HTTPS, so `main.py` serves HTTPS automatically when a certificate is present (`~/.office-addin-dev-certs/localhost.{crt,key}`, created by `setup-mac.command`) and falls back to plain HTTP otherwise. The browser app works fine over either.
 
 **Free data sources:**
 
@@ -53,52 +64,50 @@ backend/
 
 - **Python 3.10+** — uses only the standard library; no `pip install` needed
 - A free **Gemini API key** — get one at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
-- A `.docx` file with footnotes
+- **Browser mode:** a `.docx` file with footnotes
+- **Word add-in (macOS):** Microsoft Word (Microsoft 365 / 2021 or newer) — footnotes are read live via Office.js, so no upload is needed
 
 ---
 
 ## Setup
 
-### 1 — Clone the repo
+### Get the code
 
 ```bash
 git clone https://github.com/yan-sudo/lawthesiscitationchecker.git
 cd lawthesiscitationchecker
-git checkout claude/word-citation-checker-EU0X5
 ```
 
-### 2 — Start the server
+### Option A — Browser app
 
 ```bash
 cd backend
 python3 main.py
 ```
 
-The app is now available at **http://localhost:8000**.
-
-To use a different port:
-
-```bash
-python3 main.py --port 9000
-```
-
-### 3 — Open the app
-
-Open **http://localhost:8000** in your browser.
+Open **http://localhost:8000** in your browser:
 
 1. Paste your Gemini API key into the **Step 1** field (tick *Remember key* to save it in your browser's local storage).
 2. Drop or select your `.docx` file in the **Step 2** field.
 3. Click **Check Citations**.
 
-That's it — no Node.js, no npm, no Word sideloading, no certificates.
+For the browser app that's it — no Node.js, no npm, no Word sideloading, no certificates. To use a different port: `python3 main.py --port 9000`.
+
+### Option B — Word add-in (macOS)
+
+1. Double-click **`setup-mac.command`** once. It creates a trusted HTTPS certificate, installs the add-in into Word, and clears Word's cache. (You'll be asked for your Mac password to trust the certificate.)
+2. Double-click **`run.command`** to start the local server — leave it running.
+3. In Word, open the **Home** tab → **Citation Checker** → paste your key → **Scan & check this document**.
+
+Full walkthrough and troubleshooting: **[WORD-PLUGIN-SETUP.md](WORD-PLUGIN-SETUP.md)**.
 
 ---
 
 ## Usage
 
-After clicking **Check Citations**:
+After you start a check (**Check Citations** in the browser, or **Scan & check this document** in Word):
 
-1. The server extracts all footnotes and the main-body sentence each footnote is attached to.
+1. Footnotes are collected — extracted from the uploaded `.docx` in the browser, or read live from the open document via Office.js in Word.
 2. Source metadata is fetched from free databases (CourtListener, USCODE, etc.).
 3. Result cards appear immediately. Each footnote expands into authority sub-cards.
 4. Gemini checks each authority in the background (up to 3 in parallel with automatic retry on rate limits).
@@ -190,15 +199,15 @@ The splitter handles semicolon-separated lists and `Compare X, with Y` construct
 - **Add a reporter abbreviation**: update `REPORTERS` in `backend/citation_parser.py`.
 - **Add a journal pattern**: extend `JOURNAL_WORDS` in `citation_parser.py`.
 - **Change the port**: `python3 main.py --port 9000` (default: 8000).
-- **Run tests**: `cd backend && python3 test_core.py` (36 tests, no network calls).
+- **Run tests**: `cd backend && python3 test_core.py` (also `test_authority_splitter.py`, `test_fetchers.py` — all offline, no network calls).
 
 ---
 
 ## Privacy
 
-- Your `.docx` is processed on your local machine by the Python server and is never uploaded to any external service.
+- Your document stays on your machine: the browser app processes the `.docx` locally, and the Word add-in reads footnotes via Office.js without uploading the file.
 - Footnote text and pre-fetched source snippets are sent to Google's Gemini API as part of the accuracy-checking prompt.
-- Your Gemini API key is stored only in your browser's `localStorage` if you tick *Remember key*; it is never sent to the local server.
+- Your Gemini API key is stored only in `localStorage` (browser or Word task pane) if you tick *Remember key*; it is never sent to the local server.
 
 ---
 
