@@ -213,6 +213,9 @@ main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
   border-radius:9px;padding:14px 16px;box-shadow:var(--shadow-sm);
   display:flex;flex-direction:column;align-items:center;text-align:center;
 }
+.stat-card.filterable{cursor:pointer;transition:all var(--transition);font-family:inherit}
+.stat-card.filterable:hover{border-color:var(--accent)}
+.stat-card.filterable.active{border-color:var(--accent);border-width:2px;background:var(--brand-light)}
 .stat-num{font-size:28px;font-weight:700;line-height:1;margin-bottom:4px}
 .stat-lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-3);font-weight:500}
 .stat-card.s-total .stat-num{color:var(--brand)}
@@ -222,23 +225,10 @@ main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
 .stat-card.s-grey .stat-num{color:var(--slate)}
 .stat-card.s-pending .stat-num{color:var(--amber);animation:pulse 1.4s ease infinite}
 
-/* ── Filter & toolbar ────────────────────────────── */
+/* ── Toolbar ──────────────────────────────────────── */
 .toolbar{
   display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;
 }
-.filter-btn{
-  display:inline-flex;align-items:center;gap:5px;
-  padding:5px 13px;border-radius:20px;border:1.5px solid var(--border);
-  background:var(--surface);font-size:12px;font-weight:500;cursor:pointer;
-  color:var(--text-2);transition:all var(--transition);font-family:inherit;
-}
-.filter-btn:hover{border-color:var(--accent);color:var(--accent)}
-.filter-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
-.filter-count{
-  background:rgba(255,255,255,.25);border-radius:10px;
-  padding:0 6px;font-size:10px;font-weight:700;min-width:18px;text-align:center;
-}
-.filter-btn:not(.active) .filter-count{background:var(--page);color:var(--text-3)}
 .toolbar-right{margin-left:auto;display:flex;gap:8px}
 
 /* ── Citation card ───────────────────────────────── */
@@ -395,6 +385,11 @@ main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
 .basis-banner.basis-footnote{background:var(--red-bg);border:1px solid var(--red-border);color:#7f1d1d}
 .basis-icon{flex-shrink:0;font-size:14px;margin-top:1px}
 .basis-label{font-weight:700;margin-right:4px}
+.evidence-link{
+  display:inline-block;margin-left:6px;font-weight:600;text-decoration:none;
+  color:inherit;border-bottom:1px dotted currentColor;
+}
+.evidence-link:hover{border-bottom-style:solid}
 
 /* ── Authority tree ──────────────────────────────── */
 .auth-tree{display:flex;flex-direction:column;gap:7px;margin-top:6px}
@@ -405,38 +400,13 @@ main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
 }
 .auth-card:hover{box-shadow:var(--shadow-sm)}
 
-/* ── Source bar — always visible, never collapsible ── */
-.auth-src-bar{
-  display:flex;align-items:center;gap:10px;
-  padding:8px 14px;
-  border-top:1px solid var(--border);
-  background:#f0f7ff;
-}
-.auth-src-bar a{
-  display:inline-flex;align-items:center;gap:5px;
-  font-size:12.5px;font-weight:700;color:var(--accent);
-  text-decoration:none;flex:1;min-width:0;
-}
-.auth-src-bar a:hover{text-decoration:underline}
-.src-domain{
-  font-size:11px;font-weight:400;color:var(--text-3);
-  margin-left:2px;white-space:nowrap;
-}
-.auth-src-bar .basis-pill{
-  font-size:10.5px;font-weight:700;border-radius:5px;
-  padding:2px 8px;white-space:nowrap;flex-shrink:0;
-}
-.basis-pill-original {background:var(--green-bg);color:#14532d;border:1px solid var(--green-border)}
-.basis-pill-secondary{background:var(--amber-bg);color:#78350f;border:1px solid var(--amber-border)}
-.basis-pill-footnote {background:var(--slate-bg); color:var(--slate); border:1px solid var(--slate-border)}
 .src-reliability{
   font-size:10.5px;font-weight:600;border-radius:4px;
-  padding:1px 7px;white-space:nowrap;flex-shrink:0;
+  padding:1px 7px;white-space:nowrap;margin-left:6px;
 }
 .src-rel-high  {background:var(--green-bg);color:#14532d;border:1px solid var(--green-border)}
 .src-rel-medium{background:#f1f5f9;color:var(--slate);border:1px solid var(--slate-border)}
 .src-rel-low   {background:var(--amber-bg);color:#78350f;border:1px solid var(--amber-border)}
-.auth-src-bar-warn{background:#fffbeb;border-top-color:var(--amber-border)}
 .auth-header{
   display:flex;align-items:flex-start;gap:10px;
   padding:10px 14px;cursor:pointer;user-select:none;
@@ -660,22 +630,6 @@ footer a:hover{text-decoration:underline}
     <div id="alert-box"></div>
 
     <div class="toolbar">
-      <button class="filter-btn active" data-filter="all" onclick="setFilter(this,'all')">
-        All <span class="filter-count" id="fc-all">0</span>
-      </button>
-      <button class="filter-btn" data-filter="issues" onclick="setFilter(this,'issues')">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12" stroke="#fff" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16" r="1.2" fill="#fff"/></svg>
-        Issues <span class="filter-count" id="fc-issues">0</span>
-      </button>
-      <button class="filter-btn" data-filter="questionable" onclick="setFilter(this,'questionable')">
-        Questionable <span class="filter-count" id="fc-questionable">0</span>
-      </button>
-      <button class="filter-btn" data-filter="ok" onclick="setFilter(this,'ok')">
-        Supported <span class="filter-count" id="fc-ok">0</span>
-      </button>
-      <button class="filter-btn" data-filter="unverified" onclick="setFilter(this,'unverified')">
-        Unverified <span class="filter-count" id="fc-unverified">0</span>
-      </button>
       <div class="toolbar-right">
         <button class="btn btn-danger-ghost btn-sm" id="jump-issue-btn" onclick="jumpToFirstIssue()" hidden>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
@@ -907,7 +861,6 @@ async function runCheck() {
   document.getElementById('ai-status').hidden = true;
   document.getElementById('export-btn').hidden = false;
   updateSummary(data.results);
-  updateFilterCounts(data.results);
 
   // Show jump-to-issue button if any issues found
   const hasAnyIssue = (data.results || []).some(r =>
@@ -1137,7 +1090,6 @@ async function handleSourceUpload(event, ri, ai) {
   updateAuthCard(ri, ai, a);
   updateFootnoteHeader(ri, r);
   updateSummary(lastResults.results);
-  updateFilterCounts(lastResults.results);
 }
 
 // ── Gemini call ────────────────────────────────────────────────────────────────
@@ -1467,7 +1419,6 @@ function renderResults(data) {
     `${results.length} footnote${results.length !== 1 ? 's' : ''}`;
   document.getElementById('results-file').textContent = data.filename || '';
   updateSummary(results);
-  updateFilterCounts(results);
   document.getElementById('cards').innerHTML = '';
   results.forEach((r, ri) => document.getElementById('cards').appendChild(makeFootnoteCard(r, ri)));
 }
@@ -1486,45 +1437,26 @@ function updateSummary(results) {
       else unverified++;
     })
   );
+  const active = f => f === currentFilter ? ' active' : '';
   document.getElementById('summary').innerHTML = `
     <div class="stat-card s-total"><span class="stat-num">${results.length}</span><span class="stat-lbl">Footnotes</span></div>
     <div class="stat-card s-total"><span class="stat-num">${authTotal}</span><span class="stat-lbl">Authorities</span></div>
-    <div class="stat-card s-ok"><span class="stat-num">${supports}</span><span class="stat-lbl">Supported</span></div>
-    <div class="stat-card s-bad"><span class="stat-num">${issues}</span><span class="stat-lbl">Issues found</span></div>
-    <div class="stat-card s-warn"><span class="stat-num">${questionable}</span><span class="stat-lbl">Questionable</span></div>
-    <div class="stat-card s-grey"><span class="stat-num">${unverified}</span><span class="stat-lbl">Unverified</span></div>
+    <div class="stat-card filterable s-ok${active('ok')}" onclick="setFilter(this,'ok')"><span class="stat-num">${supports}</span><span class="stat-lbl">Supported</span></div>
+    <div class="stat-card filterable s-bad${active('issues')}" onclick="setFilter(this,'issues')"><span class="stat-num">${issues}</span><span class="stat-lbl">Issues found</span></div>
+    <div class="stat-card filterable s-warn${active('questionable')}" onclick="setFilter(this,'questionable')"><span class="stat-num">${questionable}</span><span class="stat-lbl">Questionable</span></div>
+    <div class="stat-card filterable s-grey${active('unverified')}" onclick="setFilter(this,'unverified')"><span class="stat-num">${unverified}</span><span class="stat-lbl">Unverified</span></div>
     ${notCit ? `<div class="stat-card s-grey"><span class="stat-num">${notCit}</span><span class="stat-lbl">Not a citation</span></div>` : ''}
     ${pending ? `<div class="stat-card s-pending"><span class="stat-num">${pending}</span><span class="stat-lbl">Checking…</span></div>` : ''}
   `;
 }
 
-function updateFilterCounts(results) {
-  let all=0, ok=0, issues=0, questionable=0, unverified=0;
-  results.forEach(r =>
-    (r.authorities || []).forEach(a => {
-      all++;
-      if (a.skipped) return;   // non-citation prose is not an "unverified" citation
-      const v = a.llm?.proposition_support?.verdict || '';
-      if (v === 'Supports') ok++;
-      else if (v === 'Does not support') issues++;
-      else if (v === 'Questionable') questionable++;
-      else unverified++;
-    })
-  );
-  document.getElementById('fc-all').textContent = all;
-  document.getElementById('fc-ok').textContent = ok;
-  document.getElementById('fc-issues').textContent = issues;
-  document.getElementById('fc-questionable').textContent = questionable;
-  document.getElementById('fc-unverified').textContent = unverified;
-}
-
 // ── Filter ─────────────────────────────────────────
 function setFilter(btn, filter) {
-  currentFilter = filter;
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
+  currentFilter = (currentFilter === filter) ? 'all' : filter;
+  document.querySelectorAll('.stat-card.filterable').forEach(b => b.classList.remove('active'));
+  if (currentFilter !== 'all') btn.classList.add('active');
   document.querySelectorAll('.cit-card').forEach(card => {
-    card.hidden = !cardMatchesFilter(card, filter);
+    card.hidden = !cardMatchesFilter(card, currentFilter);
   });
 }
 function cardMatchesFilter(card, filter) {
@@ -1737,68 +1669,51 @@ function makeAuthCard(a, idx, ri) {
   const isSecondary = basis === 'secondary_source';
   const needsLink   = isOriginal || isSecondary;
 
-  // Pre-fetcher database pill (header)
-  const srcPill = a.source_url
-    ? `<a class="vp vp-source" href="${esc(a.source_url)}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">${esc(sourceLabel(a.source_name))} ↗</a>`
-    : `<span class="vp vp-no-source">${esc(sourceLabel(a.source_name))}</span>`;
-
-  // Direct link to the actual document (PDF), supplied by the pre-fetcher
-  // (e.g. CourtListener's stored opinion PDF). Independent of Gemini's read URL.
-  const pdfPill = a.source_pdf_url
+  // Single header pill: prefer a direct PDF, else the pre-fetcher's database link.
+  const headerLinkHtml = a.source_pdf_url
     ? `<a class="vp vp-pdf" href="${esc(a.source_pdf_url)}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">PDF ↗</a>`
-    : '';
+    : a.source_url
+      ? `<a class="vp vp-source" href="${esc(a.source_url)}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">${esc(sourceLabel(a.source_name))} ↗</a>`
+      : `<span class="vp vp-no-source">${esc(sourceLabel(a.source_name))}</span>`;
 
-  // ── Always-visible source bar (not inside collapsible body) ──────────────
-  // Shown whenever Gemini visited a URL; cannot be hidden by toggling.
-  const basisPillCls = isOriginal  ? 'basis-pill-original'
-                     : isSecondary ? 'basis-pill-secondary'
-                     :               'basis-pill-footnote';
+  // ── One evidence bar (was 3 separate, overlapping blocks) ────────────────
   const urlIsGeneric = !!(llm.source_url_is_generic);
-
-  let srcBarHtml = '';
+  let evidenceBarHtml;
   if (readUrl) {
     const rel      = urlIsGeneric ? 'low' : urlReliability(readUrl);
-    const domain   = urlDomain(readUrl);
-    const relLabel = urlIsGeneric     ? '⚠ General page — not the specific document'
+    const relLabel = urlIsGeneric     ? '⚠ General page, not the specific document'
                    : rel === 'high'   ? '✓ Authoritative'
                    : rel === 'low'    ? '⚠ Verify source'
                    :                    'Unverified domain';
-    const relCls   = `src-rel-${rel}`;
     const linkLabel = isOriginal  ? 'Open original source'
                     : isSecondary ? 'Open secondary source'
                     :               'Open source read by Gemini';
-    srcBarHtml = `<div class="auth-src-bar${urlIsGeneric ? ' auth-src-bar-warn' : ''}">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;color:var(--accent)"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-      <a href="${esc(readUrl)}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">
-        ${linkLabel}<span class="src-domain">${esc(domain)}</span>
-      </a>
-      <span class="src-reliability ${relCls}">${relLabel}</span>
-      <span class="basis-pill ${basisPillCls}">${basisLabel}</span>
+    evidenceBarHtml = `<div class="basis-banner ${basisCls}">
+      <span class="basis-icon">${basisIcon}</span>
+      <div style="flex:1">
+        <span class="basis-label">${basisLabel}.</span>${basisDesc ? ' ' + esc(basisDesc) : ''}
+        <a href="${esc(readUrl)}" target="_blank" rel="noreferrer" class="evidence-link">${linkLabel} · ${esc(urlDomain(readUrl))}</a>
+        <span class="src-reliability src-rel-${urlIsGeneric ? 'low' : rel}">${relLabel}</span>
+      </div>
     </div>`;
   } else if (needsLink) {
-    srcBarHtml = `<div class="auth-src-bar" style="background:var(--red-bg)">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      <span style="font-size:12px;color:#7f1d1d">Gemini claimed to read the source but provided no URL — verdict downgraded to Cannot verify.</span>
+    evidenceBarHtml = `<div class="basis-banner basis-footnote">
+      <span class="basis-icon">✘</span>
+      <div style="flex:1">Gemini claimed to read the source but gave no URL — downgraded to Cannot verify.</div>
+    </div>`;
+  } else {
+    evidenceBarHtml = `<div class="basis-banner ${basisCls}">
+      <span class="basis-icon">${basisIcon}</span>
+      <div style="flex:1"><span class="basis-label">${basisLabel}.</span>${basisDesc ? ' ' + esc(basisDesc) : ''}</div>
     </div>`;
   }
-
-  // Primary link in the expanded body (duplicate of src bar for easy access)
-  let primaryLinkHtml = readUrl
-    ? `<a class="source-link mt4" href="${esc(readUrl)}" target="_blank" rel="noreferrer">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-        ${isOriginal ? 'Open original source' : isSecondary ? 'Open secondary source' : 'Open source'}</a>`
-    : (a.source_url
-        ? `<a class="source-link mt4" href="${esc(a.source_url)}" target="_blank" rel="noreferrer">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            Open ${esc(sourceLabel(a.source_name))}</a>`
-        : `<span class="source-note">${esc(sourceLabel(a.source_name))}</span>`);
 
   // Other pages Gemini visited (deduplicated)
   const otherSources = (llm.grounding_sources || [])
     .filter(s => isValidUrl(s?.uri) && s.uri !== readUrl);
   const otherHtml = otherSources.length
-    ? `<div class="mt8">
-        <div class="section-title">Other pages consulted by Gemini</div>
+    ? `<details class="mt8">
+        <summary class="section-title" style="cursor:pointer">${otherSources.length} other page${otherSources.length>1?'s':''} consulted by Gemini</summary>
         <div class="sources-list mt4">
           ${otherSources.map(s =>
             `<a class="source-link secondary" href="${esc(s.uri)}" target="_blank" rel="noreferrer">
@@ -1806,8 +1721,11 @@ function makeAuthCard(a, idx, ri) {
               ${esc(s.title || s.uri)}</a>`
           ).join('')}
         </div>
-      </div>`
+      </details>`
     : '';
+
+  const showParenthetical = par.verdict && !/^No (parenthetical|pincite)/i.test(par.verdict);
+  const showPincite       = pin.verdict && !/^No (parenthetical|pincite)/i.test(pin.verdict);
 
   div.innerHTML = `
     <div class="auth-header" onclick="toggleAuthCard(this)">
@@ -1817,20 +1735,16 @@ function makeAuthCard(a, idx, ri) {
         <span class="auth-text">${esc(a.text)}</span>
       </div>
       <div class="cit-verdicts" style="gap:4px;align-items:center">
-        ${verdictPill(propV,'prop')}${pdfPill}${srcPill}
+        ${verdictPill(propV,'prop')}${headerLinkHtml}
       </div>
       <button class="copy-btn" title="Copy citation" onclick="event.stopPropagation();copyText('${esc(a.text).replace(/'/g,"\\'")}')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
       </button>
       <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
     </div>
-    ${srcBarHtml}
     <div class="auth-body">
 
-      <div class="basis-banner ${basisCls}">
-        <span class="basis-icon">${basisIcon}</span>
-        <div style="flex:1"><span class="basis-label">Compared against: ${basisLabel}.</span>${basisDesc ? ' ' + esc(basisDesc) : ''}</div>
-      </div>
+      ${evidenceBarHtml}
 
       ${llm.doc_overview
         ? `<div class="source-note mt8" style="font-style:normal">
@@ -1854,20 +1768,22 @@ function makeAuthCard(a, idx, ri) {
           <div class="check-expl">${esc(prop.explanation||'')}</div>
         </div>
       </div>
+      ${showParenthetical ? `
       <div class="check-row">
         <span class="check-label">Parenthetical accurate?</span>
         <div class="check-content">
           ${verdictPill(par.verdict,'par')}
           <div class="check-expl">${esc(par.explanation||'')}</div>
         </div>
-      </div>
+      </div>` : ''}
+      ${showPincite ? `
       <div class="check-row" style="border-bottom:none">
         <span class="check-label">Pincite accurate?</span>
         <div class="check-content">
           ${verdictPill(pin.verdict,'pin')}
           <div class="check-expl">${esc(pin.explanation||'')}</div>
         </div>
-      </div>
+      </div>` : ''}
 
       ${llm.overall ? `
       <div class="mt8">
@@ -1876,21 +1792,15 @@ function makeAuthCard(a, idx, ri) {
       </div>` : ''}
 
       <div class="mt12">
-        <div class="section-title">Source read by Gemini</div>
-        ${primaryLinkHtml}
-        ${a.source_pdf_url ? `<a class="source-link mt4" href="${esc(a.source_pdf_url)}" target="_blank" rel="noreferrer">
+        ${a.source_pdf_url && a.source_pdf_url !== readUrl ? `<a class="source-link mt4" href="${esc(a.source_pdf_url)}" target="_blank" rel="noreferrer">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
             View original document (PDF)</a>` : ''}
         ${(basis === 'footnote_only' && a.source_note) ? `<span class="source-note">${esc(a.source_note)}</span>` : ''}
         ${otherHtml}
-      </div>
-
-      <div class="mt12">
-        <div class="section-title">Can't verify automatically?</div>
-        <div class="upload-relay mt4">
+        <div class="upload-relay mt8">
           <label class="upload-btn">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            Upload source (PDF / DOCX / TXT)
+            Can't verify? Upload the source (PDF / DOCX / TXT)
             <input type="file" accept=".pdf,.docx,.txt" style="display:none" onchange="handleSourceUpload(event, ${ri}, ${ai})">
           </label>
           <span class="upload-status" id="upload-status-${ri}-${ai}">${a.source_uploaded ? '✓ Verified against your uploaded file' : ''}</span>
@@ -2004,8 +1914,6 @@ function reset() {
   document.getElementById('ai-status').hidden = true;
   document.getElementById('export-btn').hidden = true;
   document.getElementById('jump-issue-btn').hidden = true;
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-  document.querySelector('[data-filter="all"]').classList.add('active');
   updateRunBtn();
   show('screen-setup');
 }
