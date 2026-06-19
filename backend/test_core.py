@@ -101,6 +101,34 @@ check(r17.citation_type == cp.CitationType.ADMINISTRATIVE, "ADMIN: SEC release d
 r18 = cp.parse("In the Matter of XYZ Corp., FTC Docket No. C-1234 (2020)")
 check(r18.citation_type == cp.CitationType.ADMINISTRATIVE, "ADMIN: FTC docket detected")
 
+# ── Non-citation prose (author's own analysis / editorial notes) ─────────────
+print("\n── Non-citation detection ───────────────────────")
+
+nc1 = cp.parse(
+    "For a top-bracket taxpayer, the Section 1256 blended federal rate is "
+    "computed and added to the net investment income tax for the year"
+)
+check(nc1.citation_type == cp.CitationType.NON_CITATION,
+      f"NON_CITATION: narrative prose detected (got {nc1.citation_type})")
+check(nc1.bluebook_rule is None, "NON_CITATION: no Bluebook rule assigned")
+
+nc2 = cp.parse(
+    "The Iowa Electronic Markets were established in 1988 by faculty at the "
+    "University of Iowa as a research platform for studying aggregation"
+)
+check(nc2.citation_type == cp.CitationType.NON_CITATION,
+      "NON_CITATION: second narrative prose detected")
+
+# Real citations must NOT be swallowed by the non-citation detector
+check(cp.parse("Miranda v. Arizona, 384 U.S. 436 (1966)").citation_type == cp.CitationType.CASE,
+      "NON_CITATION: real case still parsed as CASE")
+check(cp.parse("David M. Schizer, Frictions as a Constraint on Tax Planning, 101 Colum. L. Rev. 1312 (2001)")
+      .citation_type == cp.CitationType.ARTICLE,
+      "NON_CITATION: real article still parsed as ARTICLE")
+# Short signal-free fragments stay UNKNOWN so Gemini can still search them
+check(cp.parse("not a citation at all").citation_type == cp.CitationType.UNKNOWN,
+      "NON_CITATION: short fragment stays UNKNOWN, not non-citation")
+
 # ── Bluebook tests ─────────────────────────────────────────────────────────────
 
 print("\n── Bluebook Validator ───────────────────────────")

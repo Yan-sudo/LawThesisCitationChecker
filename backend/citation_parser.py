@@ -15,6 +15,7 @@ Supported types:
   BOOK         → Rule 15       (books, treatises, nonperiodic materials)
   ID           → Rule 4.1      (id. short form — same source)
   SUPRA        → Rule 4.2      (supra/infra cross-references)
+  NON_CITATION → (prose — author's own analysis/notes, not a reference)
   UNKNOWN      → (not matched by any rule above)
 """
 
@@ -36,6 +37,7 @@ class CitationType(str, Enum):
     BOOK         = "book"
     ID           = "id"
     SUPRA        = "supra"
+    NON_CITATION = "non_citation"
     UNKNOWN      = "unknown"
 
 
@@ -53,6 +55,7 @@ BLUEBOOK_RULES: dict[CitationType, tuple[str, str]] = {
     CitationType.BOOK:         ("Rule 15",     "Books & nonperiodic materials"),
     CitationType.ID:           ("Rule 4.1",    "Short form: Id."),
     CitationType.SUPRA:        ("Rule 4.2",    "Short form: Supra / Infra"),
+    CitationType.NON_CITATION: (None,          "Not a citation — author's own text"),
     CitationType.UNKNOWN:      (None,          "Format not recognised"),
 }
 
@@ -107,6 +110,7 @@ def parse(raw: str) -> ParsedCitation:
         or _try_case(text)
         or _try_short_case(text)
         or _try_book(text)
+        or _try_non_citation(text)
         or ParsedCitation(raw=text, citation_type=CitationType.UNKNOWN)
     )
     result.raw = text
@@ -518,3 +522,47 @@ def _try_book(text: str) -> Optional[ParsedCitation]:
     c.year = m.group("year")
     c.search_query = f"{c.book_title} {c.authors}"
     return c
+
+
+# ── Non-citation prose ────────────────────────────────────────────────────────
+# Footnotes frequently contain the author's own analysis, calculations, or
+# editorial notes ("User should verify…") rather than a reference to an external
+# source. These carry no Bluebook citation signal and should NOT be treated as
+# unverifiable citations — otherwise they pollute the "Unverified" tally and
+# waste LLM calls trying to locate a document that does not exist.
+
+_CITATION_SIGNALS = re.compile(
+    r"""
+      \sv\.\s                                  # case reporter: " v. "
+    | §                                        # section symbol
+    | \bU\.S\.C\.|\bC\.F\.R\.                   # statutory codes
+    | \bPub\.\s*L\.                             # public laws
+    | \bStat\.                                  # Statutes at Large
+    | \bFed\.\s*Reg\.                           # Federal Register
+    | \bCong\.                                  # Congressional materials
+    | \bRev\.\s*Rul\.                           # revenue rulings
+    | \bTreas\.\s*Reg\.                         # treasury regulations
+    | \bC\.B\.                                  # Cumulative Bulletin
+    | \bConst\.                                 # constitutions
+    | \bRestatement\b|\bU\.C\.C\.               # restatements / UCC
+    | \b(?:supra|infra)\b                       # cross-references
+    | \b[Ii]d\.                                 # id.
+    | (?:Docket|Release)\s+No\.                 # agency dockets / releases
+    | \bNo\.\s*\d                               # numbered documents (No. 97-34)
+    | \b\d+\s+[A-Z][A-Za-z\.]{1,12}\.?\s+\d+    # volume reporter page (384 U.S. 436)
+    | \(\d{4}\)                                 # year parenthetical (1966)
+    """,
+    re.VERBOSE,
+)
+
+# Signal-free fragments shorter than this are left as UNKNOWN so Gemini can
+# still search them; only longer prose is confidently classified as non-citation.
+_NON_CITATION_MIN_WORDS = 12
+
+
+def _try_non_citation(text: str) -> Optional[ParsedCitation]:
+    if _CITATION_SIGNALS.search(text):
+        return None
+    if len(text.split()) < _NON_CITATION_MIN_WORDS:
+        return None
+    return ParsedCitation(raw=text, citation_type=CitationType.NON_CITATION)

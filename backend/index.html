@@ -291,6 +291,8 @@ main{max-width:900px;width:100%;margin:0 auto;padding:32px 20px 80px;flex:1}
 .vp-no-item{background:var(--slate-bg);color:var(--slate)}
 .vp-source{background:#dbeafe;color:#1d4ed8}
 .vp-pdf{background:#fee2e2;color:#b91c1c}
+.vp-skip{background:var(--slate-bg);color:var(--slate);font-style:italic}
+.rule-skip{background:var(--slate-bg);color:var(--slate)}
 .vp-no-source{background:var(--amber-bg);color:#78350f}
 .vp-error{background:var(--red-bg);color:#7f1d1d}
 
@@ -833,11 +835,20 @@ async function runCheck() {
   setProgress(1, 2, 'Sources fetched', 'Building authority list…');
 
   lastResults = data;
+
+  // Mark non-citation prose (author's own analysis / editorial notes) so it is
+  // excluded from the Gemini checks and the verification tallies.
+  (data.results || []).forEach(r =>
+    (r.authorities || []).forEach(a => {
+      if (a.citation_type === 'non_citation' || a.source_name === 'non_citation') a.skipped = true;
+    })
+  );
+
   renderResults(data);
 
   const allAuthorities = [];
   (data.results || []).forEach((r, ri) =>
-    (r.authorities || []).forEach((a, ai) => allAuthorities.push({ r, a, ri, ai }))
+    (r.authorities || []).forEach((a, ai) => { if (!a.skipped) allAuthorities.push({ r, a, ri, ai }); })
   );
   totalAuth = allAuthorities.length;
   doneAuth = 0;
@@ -904,17 +915,63 @@ async function limitedMap(items, n, fn) {
   return results;
 }
 
-// ── Retry with exponential backoff on 429 ─────────
+// ── Retry with exponential backoff on 429 / retryable errors ─────────
 async function withRetry(fn, maxAttempts = 5) {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try { return await fn(); }
     catch (e) {
       const is429 = e.message.includes('429') || e.message.toLowerCase().includes('resource exhausted');
-      if (is429 && attempt < maxAttempts - 1)
+      const retry = is429 || e.retryable;
+      if (retry && attempt < maxAttempts - 1)
         await new Promise(r => setTimeout(r, (2**attempt)*3000 + Math.random()*1000));
       else throw e;
     }
   }
+}
+
+// ── Robust JSON extraction from a Gemini text response ─────────
+// Handles markdown code fences and best-effort repair of truncated objects.
+function extractGeminiJson(rawText) {
+  if (!rawText) return null;
+  let t = rawText.trim();
+  // Strip leading/trailing markdown code fences (```json … ``` or ``` … ```).
+  t = t.replace(/^```[a-zA-Z]*\s*/, '').replace(/\s*```$/, '').trim();
+  const start = t.indexOf('{');
+  if (start === -1) return null;
+  let body = t.slice(start);
+  // Happy path: trim to the last closing brace and parse.
+  const lastBrace = body.lastIndexOf('}');
+  if (lastBrace !== -1) {
+    try { return JSON.parse(body.slice(0, lastBrace + 1)); } catch { /* try repair */ }
+  }
+  // Fallback: repair a truncated object (close open string + braces/brackets).
+  const repaired = repairTruncatedJson(body);
+  if (repaired) { try { return JSON.parse(repaired); } catch { /* give up */ } }
+  return null;
+}
+
+function repairTruncatedJson(s) {
+  let inStr = false, esc = false;
+  const stack = [];
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === '{') stack.push('}');
+    else if (c === '[') stack.push(']');
+    else if (c === '}' || c === ']') stack.pop();
+  }
+  let out = s;
+  if (inStr) out += '"';                       // close a dangling string
+  out = out.replace(/,\s*$/, '');              // drop a trailing comma
+  out = out.replace(/,\s*"[^"]*"\s*:?\s*$/, ''); // drop an incomplete trailing key
+  for (let i = stack.length - 1; i >= 0; i--) out += stack[i];  // close open containers
+  return out;
 }
 
 // ── URL validation helper ──────────────────────────
@@ -1130,9 +1187,18 @@ Respond ONLY with valid JSON — no markdown fences:
   }
 
   // ── API call ──────────────────────────────────────────────────────────────
+  // maxOutputTokens is generous because Gemini 2.5 models spend part of the
+  // budget on internal "thinking"; too low a cap truncates the JSON mid-object.
+  // thinkingBudget is minimised (0 where the model allows it) to leave room for
+  // the actual answer and keep latency/cost down — Pro cannot fully disable it.
+  const thinkingBudget = /pro/i.test(model) ? 128 : 0;
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.0, maxOutputTokens: 2500 },
+    generationConfig: {
+      temperature: 0.0,
+      maxOutputTokens: 8192,
+      thinkingConfig: { thinkingBudget },
+    },
   };
   if (apiTools) body.tools = apiTools;
 
@@ -1145,14 +1211,24 @@ Respond ONLY with valid JSON — no markdown fences:
     throw new Error(err.error?.message || `Gemini error ${resp.status}`);
   }
   const data    = await resp.json();
-  const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const cand    = data.candidates?.[0];
+  const rawText = cand?.content?.parts?.map(p => p?.text || '').join('') || '';
+  const finishReason = cand?.finishReason || '';
 
-  const groundingSources = (data.candidates?.[0]?.groundingMetadata?.groundingChunks || [])
+  const groundingSources = (cand?.groundingMetadata?.groundingChunks || [])
     .map(c => c.web).filter(s => s && isValidUrl(s.uri) && !isSearchUrl(s.uri));
 
-  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error(`No JSON in Gemini response: ${rawText.slice(0, 200)}`);
-  const result = JSON.parse(jsonMatch[0]);
+  const result = extractGeminiJson(rawText);
+  if (!result) {
+    // Truncated output is the usual culprit — make it retryable so withRetry
+    // gives it another pass rather than failing the authority outright.
+    const truncated = finishReason === 'MAX_TOKENS';
+    const err = new Error(truncated
+      ? 'Gemini response was cut off (MAX_TOKENS) before valid JSON; retrying.'
+      : `Could not parse JSON from Gemini response: ${rawText.slice(0, 160)}`);
+    if (truncated) err.retryable = true;
+    throw err;
+  }
   result.grounding_sources  = groundingSources;
   result._text_analysis     = hasText;  // flag for UI
 
@@ -1274,10 +1350,11 @@ function renderResults(data) {
 }
 
 function updateSummary(results) {
-  let supports = 0, issues = 0, questionable = 0, unverified = 0, authTotal = 0, pending = 0;
+  let supports = 0, issues = 0, questionable = 0, unverified = 0, authTotal = 0, pending = 0, notCit = 0;
   results.forEach(r =>
     (r.authorities || []).forEach(a => {
       authTotal++;
+      if (a.skipped) { notCit++; return; }
       if (!a.llm) { pending++; return; }
       const v = a.llm.proposition_support?.verdict || '';
       if (v === 'Supports') supports++;
@@ -1293,6 +1370,7 @@ function updateSummary(results) {
     <div class="stat-card s-bad"><span class="stat-num">${issues}</span><span class="stat-lbl">Issues found</span></div>
     <div class="stat-card s-warn"><span class="stat-num">${questionable}</span><span class="stat-lbl">Questionable</span></div>
     <div class="stat-card s-grey"><span class="stat-num">${unverified}</span><span class="stat-lbl">Unverified</span></div>
+    ${notCit ? `<div class="stat-card s-grey"><span class="stat-num">${notCit}</span><span class="stat-lbl">Not a citation</span></div>` : ''}
     ${pending ? `<div class="stat-card s-pending"><span class="stat-num">${pending}</span><span class="stat-lbl">Checking…</span></div>` : ''}
   `;
 }
@@ -1302,6 +1380,7 @@ function updateFilterCounts(results) {
   results.forEach(r =>
     (r.authorities || []).forEach(a => {
       all++;
+      if (a.skipped) return;   // non-citation prose is not an "unverified" citation
       const v = a.llm?.proposition_support?.verdict || '';
       if (v === 'Supports') ok++;
       else if (v === 'Does not support') issues++;
@@ -1406,6 +1485,7 @@ function updateFootnoteHeader(ri, r) {
   const pill = document.getElementById(`fn-pills-${ri}`);
   if (!pill) return;
   pill.innerHTML = (r.authorities || []).map((a, i) => {
+    if (a.skipped) return `<span class="vp vp-skip" title="${esc(a.text)}">Auth ${i+1}</span>`;
     if (!a.llm) return `<span class="checking-pill">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>`;
     const v = a.llm.proposition_support?.verdict || 'Cannot verify';
     const cls = v === 'Supports' ? 'vp-supports'
@@ -1415,13 +1495,15 @@ function updateFootnoteHeader(ri, r) {
     return `<span class="vp ${cls}" title="${esc(a.text)}">Auth ${i+1}</span>`;
   }).join('');
 
-  const verdicts = (r.authorities || []).map(a => a.llm?.proposition_support?.verdict || '');
+  // Verdicts of the real (non-skipped) authorities only.
+  const verdicts = (r.authorities || []).filter(a => !a.skipped)
+    .map(a => a.llm?.proposition_support?.verdict || '');
   const card = document.getElementById(`fn-${ri}`);
   if (card) {
     card.className = 'cit-card ' + (
       verdicts.some(v => v === 'Does not support') ? 'has-issues' :
       verdicts.some(v => v === 'Questionable')     ? 'has-warn' :
-      verdicts.every(v => v === 'Supports')        ? 'all-good' : 'unverified'
+      verdicts.length && verdicts.every(v => v === 'Supports') ? 'all-good' : 'unverified'
     );
   }
 }
@@ -1478,6 +1560,24 @@ function makeAuthCard(a, idx, ri) {
   div.className = 'auth-card';
   div.id = `auth-${ri}-${ai}`;
   div.style.cssText = `border-left:3px solid ${borderCol}`;
+
+  // Non-citation prose: render a clear "skipped" card, no verdict.
+  if (a.skipped) {
+    div.style.cssText = 'border-left:3px solid var(--slate-border)';
+    div.innerHTML = `
+      <div class="auth-header">
+        <span class="auth-num">${idx}</span>
+        <div class="auth-meta">
+          <span class="rule-badge rule-skip" title="No external source to verify">Not a citation</span>
+          <span class="auth-text">${esc(a.text)}</span>
+        </div>
+        <div class="cit-verdicts"><span class="vp vp-skip">Skipped</span></div>
+      </div>
+      <div class="auth-body">
+        <div class="source-note">This footnote text is the author's own analysis, calculation, or editorial note — not a reference to an external source, so it was not sent for verification.</div>
+      </div>`;
+    return div;
+  }
 
   const ruleBadge = a.bluebook_rule
     ? `<span class="rule-badge${a.citation_type === 'unknown' ? ' rule-unknown' : ''}" title="${esc(a.bluebook_rule_desc || '')}">${esc(a.bluebook_rule)} · ${esc(a.bluebook_rule_desc || '')}</span>`

@@ -369,10 +369,37 @@ parsed = cp.parse("Id. at 445")
 r = _fetch_source(parsed)
 check(r["source"] == "id_citation", f"ID dispatch: {r['source']}")
 
-# Supra dispatch
+# Supra dispatch — unresolvable (no note index) falls back to supra_citation
 parsed = cp.parse("Smith, supra note 5, at 42")
 r = _fetch_source(parsed)
-check(r["source"] == "supra_citation", f"SUPRA dispatch: {r['source']}")
+check(r["source"] == "supra_citation", f"SUPRA dispatch (unresolved): {r['source']}")
+
+# Supra resolution — points back to the full citation in the referenced note
+from main import _build_note_index, _resolve_supra
+items = [
+    {"number": "14", "footnote": "David F. Bradford, Fixing Capital Gains, 50 Tax L. Rev. 731 (1996).", "sentence": ""},
+    {"number": "50", "footnote": "Bradford, supra note 14 (symmetry principle).", "sentence": ""},
+]
+note_index = _build_note_index(items)
+supra_parsed = cp.parse("Bradford, supra note 14 (symmetry principle)")
+resolved = _resolve_supra(supra_parsed, note_index)
+check(resolved is not None, "SUPRA resolves note 14 to a full citation")
+check(resolved.citation_type == cp.CitationType.ARTICLE, f"SUPRA resolves to ARTICLE: {resolved and resolved.citation_type}")
+with patch("fetchers.articles._get_json", side_effect=mock_get_json_crossref):
+    r = _fetch_source(supra_parsed, note_index)
+# Resolution means it dispatched to the article fetcher rather than returning
+# the unresolved supra_citation stub.
+check(r["source"] != "supra_citation", f"SUPRA fetch dispatched to resolved source: {r['source']}")
+check("supra note 14" in (r.get("note") or ""), "SUPRA note explains the resolution")
+
+# Non-citation prose dispatch — skipped, no network
+parsed = cp.parse(
+    "For a top-bracket taxpayer, the blended rate is computed and added to the "
+    "net investment income tax for the relevant year of analysis"
+)
+r = _fetch_source(parsed)
+check(r["source"] == "non_citation", f"NON_CITATION dispatch: {r['source']}")
+check(r["url"] is None, "NON_CITATION has no URL")
 
 # Legislative dispatch
 parsed = cp.parse("H.R. 1234, 117th Cong. § 2 (2021)")

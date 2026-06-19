@@ -15,9 +15,10 @@ import email.parser
 import email.policy
 import json
 import os
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any
+from typing import Any, Optional
 
 import citation_parser as cp
 from authority_splitter import split_authorities
@@ -91,8 +92,12 @@ class Handler(BaseHTTPRequestHandler):
 
         results: list[dict | None] = [None] * len(items)
 
+        # Index every footnote's authorities up front so "supra note N" short
+        # forms can be resolved back to the full citation they point to.
+        note_index = _build_note_index(items)
+
         def worker(idx: int, item: dict):
-            results[idx] = _process_one(item)
+            results[idx] = _process_one(item, note_index)
 
         threads = [
             threading.Thread(target=worker, args=(i, it), daemon=True)
@@ -138,7 +143,7 @@ class Handler(BaseHTTPRequestHandler):
 
 # ── Per-footnote processing (source fetch only — Gemini runs in browser) ──────
 
-def _process_one(item: dict) -> dict:
+def _process_one(item: dict, note_index: dict | None = None) -> dict:
     """
     Split footnote into individual authorities and fetch each source.
     Gemini accuracy checks are performed client-side using the user's key.
@@ -152,7 +157,7 @@ def _process_one(item: dict) -> dict:
 
     def fetch_authority(idx: int, auth_text: str):
         parsed      = cp.parse(auth_text)
-        source_info = _fetch_source(parsed)
+        source_info = _fetch_source(parsed, note_index)
         auth_results[idx] = {
             "text":               auth_text,
             "citation_type":      parsed.citation_type,
@@ -182,10 +187,79 @@ def _process_one(item: dict) -> dict:
     }
 
 
+# ── Supra / cross-reference resolution ──────────────────────────────────────────
+
+# Citation types that point to a real, fetchable external source.
+_RESOLVABLE_TYPES = {
+    cp.CitationType.CASE, cp.CitationType.SHORT_CASE, cp.CitationType.STATUTE,
+    cp.CitationType.ARTICLE, cp.CitationType.BOOK, cp.CitationType.CONSTITUTION,
+    cp.CitationType.RESTATEMENT, cp.CitationType.LEGISLATIVE,
+    cp.CitationType.ADMINISTRATIVE,
+}
+
+
+def _build_note_index(items: list[dict]) -> dict[int, list[cp.ParsedCitation]]:
+    """Map footnote number → parsed authorities, for resolving 'supra note N'."""
+    index: dict[int, list[cp.ParsedCitation]] = {}
+    for it in items:
+        try:
+            num = int(it.get("number"))
+        except (TypeError, ValueError):
+            continue
+        parsed_list = []
+        for atext in split_authorities(it.get("footnote", "")):
+            try:
+                parsed_list.append(cp.parse(atext))
+            except Exception:
+                continue
+        index[num] = parsed_list
+    return index
+
+
+def _resolve_supra(parsed: cp.ParsedCitation,
+                   note_index: dict | None) -> Optional[cp.ParsedCitation]:
+    """Return the full citation a 'supra note N' short form refers to, or None."""
+    if not note_index or not parsed.supra_note:
+        return None
+    try:
+        note_num = int(parsed.supra_note)
+    except (TypeError, ValueError):
+        return None
+    resolvable = [c for c in note_index.get(note_num, [])
+                  if c.citation_type in _RESOLVABLE_TYPES]
+    if not resolvable:
+        return None
+    author = (parsed.supra_author or "").strip()
+    author_tokens = [t.lower() for t in re.findall(r"[A-Za-z]{3,}", author)]
+    if author_tokens:
+        for c in resolvable:
+            rl = c.raw.lower()
+            if any(t in rl for t in author_tokens):
+                return c
+    # No author given (or no match): unambiguous only if the note has one source.
+    if len(resolvable) == 1:
+        return resolvable[0]
+    return None
+
+
 # ── Source fetching ────────────────────────────────────────────────────────────
 
-def _fetch_source(parsed: cp.ParsedCitation) -> dict:
+def _fetch_source(parsed: cp.ParsedCitation, note_index: dict | None = None) -> dict:
     try:
+        # ── Non-citation prose — nothing to fetch or verify ────────────────
+        if parsed.citation_type == cp.CitationType.NON_CITATION:
+            return {
+                "source": "non_citation",
+                "url": None,
+                "snippet": None,
+                "full_text_available": False,
+                "note": (
+                    "This footnote text is the author's own analysis, calculation, "
+                    "or editorial note — not a citation to an external source. "
+                    "Skipped (no source to verify)."
+                ),
+            }
+
         # ── Types with external source lookup ──────────────────────────────
         if parsed.citation_type in (cp.CitationType.CASE, cp.CitationType.SHORT_CASE):
             return fetch_case(
@@ -271,6 +345,19 @@ def _fetch_source(parsed: cp.ParsedCitation) -> dict:
             }
 
         if parsed.citation_type == cp.CitationType.SUPRA:
+            # Try to resolve the cross-reference to the full citation it points
+            # to, then fetch that source so the short form can be verified.
+            resolved = _resolve_supra(parsed, note_index)
+            if resolved is not None:
+                info = dict(_fetch_source(resolved, note_index))
+                ref = f"supra note {parsed.supra_note}" if parsed.supra_note else "supra"
+                info["note"] = (
+                    f"Resolved “{parsed.raw}” → {resolved.raw[:90]} (via {ref}). "
+                    + (info.get("note") or "")
+                ).strip()
+                info["resolved_from"] = resolved.raw
+                return info
+
             ref = f"note {parsed.supra_note}" if parsed.supra_note else "a prior citation"
             who = f"{parsed.supra_author}, " if parsed.supra_author else ""
             return {
@@ -280,7 +367,8 @@ def _fetch_source(parsed: cp.ParsedCitation) -> dict:
                 "full_text_available": False,
                 "note": (
                     f"{who}supra {ref} — cross-reference to an earlier citation "
-                    "(Bluebook Rule 4.2). Accuracy depends on the source cited there."
+                    "(Bluebook Rule 4.2). The referenced note could not be resolved "
+                    "automatically; accuracy depends on the source cited there."
                 ),
             }
 
