@@ -949,6 +949,7 @@ async function processData(data) {
   setProgress(0, totalAuth, 'Checking with Gemini AI…', `0 of ${totalAuth} authorities`);
   document.getElementById('ai-status').hidden = false;
 
+  const key   = document.getElementById('api-key').value.trim();
   const model = document.getElementById('model-select').value;
   await limitedMap(allAuthorities, 3, async ({ r, a, ri, ai }) => {
     try {
