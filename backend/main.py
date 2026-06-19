@@ -16,6 +16,7 @@ import email.policy
 import json
 import os
 import re
+import ssl
 import threading
 import urllib.error
 import urllib.parse
@@ -29,6 +30,8 @@ from docx_parser import extract_all
 from fetchers import fetch_case, fetch_statute, fetch_article, fetch_book
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# Icons referenced by manifest.xml live in the Word add-in's asset folder.
+ASSETS_DIR = os.path.normpath(os.path.join(HERE, "..", "taskpane", "assets"))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -46,10 +49,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
+        path = urllib.parse.urlparse(self.path).path
+        if path in ("/", "/index.html", "/taskpane.html"):
             self._serve_file(os.path.join(HERE, "index.html"), "text/html; charset=utf-8")
-        elif self.path == "/health":
+        elif path == "/health":
             self._json(200, {"status": "ok"})
+        elif path.startswith("/assets/"):
+            self._handle_asset(path)
         elif self.path.startswith("/fetch-source"):
             self._handle_fetch_source()
         else:
@@ -58,8 +64,88 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path == "/upload":
             self._handle_upload()
+        elif self.path == "/check":
+            self._handle_check()
         else:
             self._json(404, {"error": "not found"})
+
+    # ── /assets/<icon> — icons referenced by the Word manifest ─────────────────
+
+    def _handle_asset(self, path: str):
+        name = os.path.basename(path)
+        if not re.match(r"^[\w.-]+\.(png|ico|svg)$", name):
+            self._json(404, {"error": "not found"})
+            return
+        fp = os.path.join(ASSETS_DIR, name)
+        if not os.path.isfile(fp):
+            self._json(404, {"error": "not found"})
+            return
+        ctype = ("image/png" if name.endswith(".png")
+                 else "image/x-icon" if name.endswith(".ico")
+                 else "image/svg+xml")
+        self._serve_file(fp, ctype)
+
+    # ── /check — accuracy check for footnotes read live from a Word document ────
+    # The Word add-in reads footnotes via Office.js (no .docx upload), so this
+    # endpoint takes footnote text as JSON and returns the same per-footnote
+    # shape as /upload. Gemini accuracy checks still run in the browser.
+
+    def _handle_check(self):
+        length = int(self.headers.get("Content-Length", 0))
+        try:
+            payload = json.loads(self.rfile.read(length) or b"{}")
+        except Exception:
+            self._json(400, {"error": "Invalid JSON body"})
+            return
+
+        filename = payload.get("filename") or "Word document"
+        raw = payload.get("footnotes") or []
+        items: list[dict] = []
+        for i, fn in enumerate(raw):
+            if not isinstance(fn, dict):
+                continue
+            text = (fn.get("text") or "").strip()
+            if not text:
+                continue
+            try:
+                number = int(fn.get("number"))
+            except (TypeError, ValueError):
+                number = i + 1
+            items.append({
+                "number":   number,
+                "footnote": text,
+                "sentence": (fn.get("sentence") or "").strip(),
+            })
+
+        if not items:
+            self._json(200, {
+                "filename": filename,
+                "footnote_count": 0,
+                "results": [],
+                "message": "No footnotes found in this document.",
+            })
+            return
+
+        note_index = _build_note_index(items)
+        results: list[dict | None] = [None] * len(items)
+
+        def worker(idx: int, item: dict):
+            results[idx] = _process_one(item, note_index)
+
+        threads = [
+            threading.Thread(target=worker, args=(i, it), daemon=True)
+            for i, it in enumerate(items)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self._json(200, {
+            "filename": filename,
+            "footnote_count": len(items),
+            "results": results,
+        })
 
     # ── /upload ───────────────────────────────────────────────────────────────
 
@@ -498,13 +584,37 @@ def _parse_multipart(content_type: str, body: bytes) -> dict[str, Any]:
 
 if __name__ == "__main__":
     import argparse
+
+    default_certs = os.path.expanduser("~/.office-addin-dev-certs")
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--certfile", default=os.path.join(default_certs, "localhost.crt"),
+                        help="TLS certificate (PEM). HTTPS is required by Word add-ins.")
+    parser.add_argument("--keyfile", default=os.path.join(default_certs, "localhost.key"),
+                        help="TLS private key (PEM).")
+    parser.add_argument("--http", action="store_true",
+                        help="Force plain HTTP even if a certificate is present.")
     args = parser.parse_args()
 
+    use_https = (not args.http
+                 and os.path.isfile(args.certfile)
+                 and os.path.isfile(args.keyfile))
+
     server = HTTPServer(("0.0.0.0", args.port), Handler)
+    scheme = "http"
+    if use_https:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(certfile=args.certfile, keyfile=args.keyfile)
+        server.socket = ctx.wrap_socket(server.socket, server_side=True)
+        scheme = "https"
+
     print(f"\n  Law Citation Checker")
-    print(f"  Open → http://localhost:{args.port}\n")
+    print(f"  Open → {scheme}://localhost:{args.port}")
+    if use_https:
+        print(f"  (HTTPS — Word add-in task pane will load from this address)")
+    else:
+        print(f"  (HTTP — run setup-mac.command first to enable HTTPS for the Word add-in)")
+    print()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

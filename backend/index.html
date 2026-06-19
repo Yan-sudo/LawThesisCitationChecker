@@ -8,6 +8,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth.js/1.4.2/mammoth.browser.min.js"></script>
+<!-- Office.js — present so the same page works as a Word task pane.
+     Harmless in a normal browser: Office.onReady simply reports host = null. -->
+<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
 <style>
 /* ── Reset & tokens ─────────────────────────────── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -559,7 +562,24 @@ footer a:hover{text-decoration:underline}
       </div>
     </div>
 
-    <div class="panel">
+    <!-- Word add-in mode: read footnotes straight from the open document.
+         Shown only when running inside Word; hidden in a normal browser. -->
+    <div class="panel" id="word-panel" hidden>
+      <div class="panel-title"><span class="step-num">2</span> Check This Document</div>
+      <p style="font-size:12.5px;color:var(--text-2);margin:2px 0 12px">
+        The add-in reads every footnote directly from the Word document you have open —
+        no upload needed. Click below to scan and check each citation.
+      </p>
+      <button class="btn btn-primary" id="word-scan-btn" onclick="runCheckWord()" disabled style="width:100%">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Scan &amp; check this document
+      </button>
+      <p style="font-size:11.5px;color:var(--text-3);margin-top:10px">
+        Only footnote text and fetched source snippets are sent to Gemini for accuracy checking.
+      </p>
+    </div>
+
+    <div class="panel" id="upload-panel">
       <div class="panel-title"><span class="step-num">2</span> Upload Document</div>
       <div class="drop-zone" id="drop-zone">
         <div class="dz-icon">
@@ -578,7 +598,7 @@ footer a:hover{text-decoration:underline}
       </p>
     </div>
 
-    <div class="setup-footer">
+    <div class="setup-footer" id="file-footer">
       <button class="btn btn-primary" id="run-btn" onclick="runCheck()" disabled>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
         Check Citations
@@ -661,6 +681,7 @@ let chosenFile = null;
 let lastResults = null;
 let currentFilter = 'all';
 let totalAuth = 0, doneAuth = 0;
+let isWordMode = false;   // true when running as a Word task pane (Office.js host = Word)
 
 // ── Persist API key ────────────────────────────────
 (function initKey() {
@@ -677,6 +698,25 @@ let totalAuth = 0, doneAuth = 0;
   const saved = localStorage.getItem('lexcheck-model');
   if (saved && [...sel.options].some(o => o.value === saved)) sel.value = saved;
 })();
+
+// ── Word task-pane detection ───────────────────────
+// When this page is loaded inside Word (as an Office add-in), switch the
+// "upload a .docx" UI for a "scan the open document" button. In a normal
+// browser Office.onReady reports host = null and nothing changes.
+if (typeof Office !== 'undefined' && Office.onReady) {
+  Office.onReady(info => {
+    if (info && info.host === Office.HostType.Word) {
+      isWordMode = true;
+      const uploadPanel = document.getElementById('upload-panel');
+      const fileFooter  = document.getElementById('file-footer');
+      const wordPanel   = document.getElementById('word-panel');
+      if (uploadPanel) uploadPanel.hidden = true;
+      if (fileFooter)  fileFooter.hidden  = true;
+      if (wordPanel)   wordPanel.hidden   = false;
+      updateRunBtn();
+    }
+  });
+}
 function onModelChange() {
   localStorage.setItem('lexcheck-model', document.getElementById('model-select').value);
 }
@@ -751,6 +791,9 @@ function clearFile() {
 function updateRunBtn() {
   const key = document.getElementById('api-key').value.trim();
   document.getElementById('run-btn').disabled = !(chosenFile && key);
+  // In Word mode the document is already open — only the API key is required.
+  const wordBtn = document.getElementById('word-scan-btn');
+  if (wordBtn) wordBtn.disabled = !(isWordMode && key);
 }
 
 // ── Progress helpers ───────────────────────────────
@@ -800,6 +843,81 @@ async function runCheck() {
     return;
   }
 
+  await processData(data);
+}
+
+// ── Word task pane: read footnotes from the open document, then check ───
+async function runCheckWord() {
+  const key = document.getElementById('api-key').value.trim();
+  if (!key) return;
+
+  show('screen-progress');
+  setPhase('upload');
+  setProgress(0, 0, 'Reading footnotes…', 'Scanning the open Word document');
+
+  let footnotes;
+  try {
+    footnotes = await readWordFootnotes();
+  } catch (e) {
+    show('screen-results');
+    showAlert('Could not read footnotes from Word: ' + (e.message || e));
+    return;
+  }
+
+  if (!footnotes.length) {
+    show('screen-results');
+    showAlert('No footnotes found in this document.');
+    return;
+  }
+
+  let data;
+  try {
+    const resp = await fetch('/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: 'This Word document', footnotes }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: resp.statusText }));
+      throw new Error(err.error || resp.statusText);
+    }
+    data = await resp.json();
+  } catch (e) {
+    show('screen-results');
+    showAlert(e.message);
+    return;
+  }
+
+  await processData(data);
+}
+
+// Read every footnote (and its surrounding sentence, best-effort) via Office.js.
+async function readWordFootnotes() {
+  return Word.run(async (context) => {
+    const fnotes = context.document.body.footnotes;
+    fnotes.load('items');
+    await context.sync();
+
+    const out = [];
+    for (let i = 0; i < fnotes.items.length; i++) {
+      const fn = fnotes.items[i];
+      fn.body.load('text');
+      let refPara = null;
+      try { refPara = fn.reference.paragraphs.getFirstOrNullObject(); refPara.load('text'); } catch (_) {}
+      await context.sync();
+      out.push({
+        number: i + 1,
+        text: (fn.body.text || '').trim(),
+        sentence: refPara && !refPara.isNullObject ? (refPara.text || '').trim() : '',
+      });
+    }
+    return out.filter(f => f.text);
+  });
+}
+
+// ── Shared pipeline: render fetched authorities, then run Gemini checks ──
+// Used by both the .docx upload flow (runCheck) and Word task pane (runCheckWord).
+async function processData(data) {
   setPhase('fetch');
   setProgress(1, 2, 'Sources fetched', 'Building authority list…');
 

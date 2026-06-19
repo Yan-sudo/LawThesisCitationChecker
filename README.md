@@ -2,6 +2,10 @@
 
 A local web app that checks whether every cited authority in a law review paper actually supports the proposition it is cited for. Upload a `.docx`, enter your Gemini API key, and LexCheck checks each footnote — splitting multi-authority footnotes into individual citations, fetching sources, and using Gemini with Google Search grounding to evaluate accuracy.
 
+> **Use it inside Word (macOS):** LexCheck also runs as a Word task pane add-in
+> that reads footnotes straight from the open document — no upload. See
+> **[WORD-PLUGIN-SETUP.md](WORD-PLUGIN-SETUP.md)** for the one-step Mac installer.
+
 ---
 
 ## What it does
