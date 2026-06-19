@@ -406,6 +406,12 @@ parsed = cp.parse("H.R. 1234, 117th Cong. § 2 (2021)")
 r = _fetch_source(parsed)
 check(r["source"] == "legislative", f"LEGISLATIVE dispatch: {r['source']}")
 
+# URL dispatch
+parsed = cp.parse("https://www.courtlistener.com/opinion/12345/")
+r = _fetch_source(parsed)
+check(r["source"] == "url", f"URL dispatch: {r['source']}")
+check(r["url"] == "https://www.courtlistener.com/opinion/12345/", "URL dispatch preserves the page URL")
+
 # Restatement dispatch
 parsed = cp.parse("Restatement (Second) of Contracts § 71 (1981)")
 r = _fetch_source(parsed)

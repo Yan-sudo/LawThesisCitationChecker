@@ -16,6 +16,7 @@ Supported types:
   ID           → Rule 4.1      (id. short form — same source)
   SUPRA        → Rule 4.2      (supra/infra cross-references)
   NON_CITATION → (prose — author's own analysis/notes, not a reference)
+  URL          → (direct web link to a source document)
   UNKNOWN      → (not matched by any rule above)
 """
 
@@ -37,6 +38,7 @@ class CitationType(str, Enum):
     BOOK         = "book"
     ID           = "id"
     SUPRA        = "supra"
+    URL          = "url"
     NON_CITATION = "non_citation"
     UNKNOWN      = "unknown"
 
@@ -55,6 +57,7 @@ BLUEBOOK_RULES: dict[CitationType, tuple[str, str]] = {
     CitationType.BOOK:         ("Rule 15",     "Books & nonperiodic materials"),
     CitationType.ID:           ("Rule 4.1",    "Short form: Id."),
     CitationType.SUPRA:        ("Rule 4.2",    "Short form: Supra / Infra"),
+    CitationType.URL:          (None,          "Direct URL or web link to a source document"),
     CitationType.NON_CITATION: (None,          "Not a citation — author's own text"),
     CitationType.UNKNOWN:      (None,          "Format not recognised"),
 }
@@ -110,6 +113,7 @@ def parse(raw: str) -> ParsedCitation:
         or _try_case(text)
         or _try_short_case(text)
         or _try_book(text)
+        or _try_url(text)
         or _try_non_citation(text)
         or ParsedCitation(raw=text, citation_type=CitationType.UNKNOWN)
     )
@@ -558,6 +562,18 @@ _CITATION_SIGNALS = re.compile(
 # Signal-free fragments shorter than this are left as UNKNOWN so Gemini can
 # still search them; only longer prose is confidently classified as non-citation.
 _NON_CITATION_MIN_WORDS = 12
+
+
+def _try_url(text: str) -> Optional[ParsedCitation]:
+    m = re.search(r"(https?://[^\s\)\]\>\"']+|www\.[^\s\)\]\>\"']+)", text, re.IGNORECASE)
+    if not m:
+        return None
+    url = m.group(0).rstrip('.,;:')
+    if url.lower().startswith("www."):
+        url = f"https://{url}"
+    c = ParsedCitation(raw=text, citation_type=CitationType.URL)
+    c.search_query = url
+    return c
 
 
 def _try_non_citation(text: str) -> Optional[ParsedCitation]:

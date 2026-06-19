@@ -101,6 +101,14 @@ check(r17.citation_type == cp.CitationType.ADMINISTRATIVE, "ADMIN: SEC release d
 r18 = cp.parse("In the Matter of XYZ Corp., FTC Docket No. C-1234 (2020)")
 check(r18.citation_type == cp.CitationType.ADMINISTRATIVE, "ADMIN: FTC docket detected")
 
+r19 = cp.parse("https://www.courtlistener.com/opinion/12345/")
+check(r19.citation_type == cp.CitationType.URL, "URL: direct https link detected")
+check(r19.search_query == "https://www.courtlistener.com/opinion/12345/", "URL: search_query normalized to URL")
+
+r20 = cp.parse("www.example.com/report.pdf")
+check(r20.citation_type == cp.CitationType.URL, "URL: direct www link detected")
+check(r20.search_query == "https://www.example.com/report.pdf", "URL: www link normalized to https")
+
 # ── Non-citation prose (author's own analysis / editorial notes) ─────────────
 print("\n── Non-citation detection ───────────────────────")
 

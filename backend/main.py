@@ -245,7 +245,7 @@ _RESOLVABLE_TYPES = {
     cp.CitationType.CASE, cp.CitationType.SHORT_CASE, cp.CitationType.STATUTE,
     cp.CitationType.ARTICLE, cp.CitationType.BOOK, cp.CitationType.CONSTITUTION,
     cp.CitationType.RESTATEMENT, cp.CitationType.LEGISLATIVE,
-    cp.CitationType.ADMINISTRATIVE,
+    cp.CitationType.ADMINISTRATIVE, cp.CitationType.URL,
 }
 
 
@@ -378,6 +378,18 @@ def _fetch_source(parsed: cp.ParsedCitation, note_index: dict | None = None) -> 
                     "Legislative material (bill, report, or record). "
                     "Search congress.gov for the full text. "
                     "Gemini will attempt to locate the specific document."
+                ),
+            }
+
+        if parsed.citation_type == cp.CitationType.URL:
+            return {
+                "source": "url",
+                "url": parsed.search_query or parsed.raw,
+                "snippet": None,
+                "full_text_available": False,
+                "note": (
+                    "Direct URL citation detected. "
+                    "The source page or document can be fetched and compared against the cited text."
                 ),
             }
 
